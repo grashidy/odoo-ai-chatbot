@@ -1,0 +1,7 @@
+﻿.groq_key
+ngrok.exe
+*.bat
+setup.ps1
+deploy/
+__pycache__/
+*.pyc
