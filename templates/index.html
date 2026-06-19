@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root {
   --bg:        #070b14;
@@ -509,6 +510,16 @@ header {
 .tab-btn { border: 1px solid transparent !important; }
 .tab-btn.active { border-color: var(--accent) !important; color: var(--accent) !important; background: rgba(99,102,241,0.1) !important; }
 
+/* Table wrapper with KPI + export */
+.tbl-wrap { margin: 12px 0; }
+.tbl-kpi-row { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+.tbl-kpi { background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.25); border-radius:8px; padding:8px 14px; min-width:90px; }
+.tbl-kpi .tk-val { font-size:18px; font-weight:700; color:var(--accent); }
+.tbl-kpi .tk-lbl { font-size:10px; color:var(--text3); margin-top:1px; }
+.tbl-actions { display:flex; gap:8px; margin-top:8px; }
+.btn-export { background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.3); color:#10b981; border-radius:6px; padding:5px 12px; font-size:11px; cursor:pointer; transition:all .2s; }
+.btn-export:hover { background:rgba(16,185,129,0.22); }
+
 /* Report cards */
 .report-card {
   background: var(--card);
@@ -852,19 +863,49 @@ function renderMD(raw, bubble) {
   // Tables
   t = t.replace(/((?:^\|.+\n)+)/gm, block => {
     const rows = block.trim().split('\n');
-    let html = '<table>';
+    const tblId = 'tbl_' + Math.random().toString(36).slice(2,8);
+    let headers = [];
+    let bodyRows = [];
     let inBody = false;
+    let tableHtml = '<table id="' + tblId + '">';
     rows.forEach((row, i) => {
-      if (/^\|[\s\-:|]+\|/.test(row)) { if (!inBody){html+='<tbody>';inBody=true;} return; }
-      const cells = row.split('|').slice(1,-1);
+      if (/^\|[\s\-:|]+\|/.test(row)) { if (!inBody){tableHtml+='<tbody>';inBody=true;} return; }
+      const cells = row.split('|').slice(1,-1).map(c=>c.trim());
       if (i === 0) {
-        html += '<thead><tr>' + cells.map(c=>`<th>${c.trim()}</th>`).join('') + '</tr></thead>';
+        headers = cells;
+        tableHtml += '<thead><tr>' + cells.map(c=>`<th>${c}</th>`).join('') + '</tr></thead>';
       } else {
-        if (!inBody){html+='<tbody>';inBody=true;}
-        html += '<tr>' + cells.map(c=>`<td>${c.trim()}</td>`).join('') + '</tr>';
+        if (!inBody){tableHtml+='<tbody>';inBody=true;}
+        bodyRows.push(cells);
+        tableHtml += '<tr>' + cells.map(c=>`<td>${c}</td>`).join('') + '</tr>';
       }
     });
-    return html + '</tbody></table>';
+    tableHtml += '</tbody></table>';
+
+    // Build KPI strip from numeric columns
+    const numCols = {};
+    headers.forEach((h,ci) => {
+      let sum = 0; let isNum = false;
+      bodyRows.forEach(r => {
+        const v = parseFloat((r[ci]||'').replace(/,/g,''));
+        if (!isNaN(v)) { sum += v; isNum = true; }
+      });
+      if (isNum) numCols[h] = sum;
+    });
+    let kpiHtml = `<div class="tbl-kpi-row">`;
+    kpiHtml += `<div class="tbl-kpi"><div class="tk-val">${bodyRows.length}</div><div class="tk-lbl">Total Rows</div></div>`;
+    Object.entries(numCols).forEach(([col, sum]) => {
+      const disp = sum >= 1e6 ? (sum/1e6).toFixed(1)+'M' : sum >= 1e3 ? (sum/1e3).toFixed(1)+'K' : sum.toFixed(0);
+      kpiHtml += `<div class="tbl-kpi"><div class="tk-val">${disp}</div><div class="tk-lbl">${col}</div></div>`;
+    });
+    kpiHtml += `</div>`;
+
+    const actionsHtml = `<div class="tbl-actions">
+      <button class="btn-export" onclick="exportTableExcel('${tblId}')">⬇ Export Excel</button>
+      <button class="btn-export" onclick="exportTableCSV('${tblId}')" style="border-color:rgba(99,102,241,0.3);color:#6366f1;background:rgba(99,102,241,0.08)">⬇ Export CSV</button>
+    </div>`;
+
+    return `<div class="tbl-wrap">${kpiHtml}${tableHtml}${actionsHtml}</div>`;
   });
 
   // Lists
@@ -1044,6 +1085,31 @@ async function sendMessage() {
   document.getElementById('user-input').focus();
 }
 
+// ── Excel / CSV export ─────────────────────────────────────────────────────────
+function exportTableExcel(tblId) {
+  const tbl = document.getElementById(tblId);
+  if (!tbl || typeof XLSX === 'undefined') { alert('SheetJS not loaded'); return; }
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.table_to_sheet(tbl);
+  XLSX.utils.book_append_sheet(wb, ws, 'Data');
+  XLSX.writeFile(wb, 'odoo_export_' + new Date().toISOString().slice(0,10) + '.xlsx');
+}
+
+function exportTableCSV(tblId) {
+  const tbl = document.getElementById(tblId);
+  if (!tbl) return;
+  const rows = Array.from(tbl.querySelectorAll('tr'));
+  const csv = rows.map(r =>
+    Array.from(r.querySelectorAll('th,td'))
+      .map(c => '"' + c.innerText.replace(/"/g,'""') + '"').join(',')
+  ).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'odoo_export_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+}
+
 // ── Tab switching ──────────────────────────────────────────────────────────────
 const reportCharts = {};
 
@@ -1112,7 +1178,17 @@ async function loadReports() {
       const card = document.createElement('div');
       card.className = 'report-card';
       const cid = 'rc' + idx;
-      card.innerHTML = `<h3>${cfg.title}</h3><div class="report-sub">${cfg.sub}</div><canvas id="${cid}"></canvas>`;
+      const tid = 'rt' + idx;
+      // Build hidden data table for export
+      const thRow = `<tr><th>${cfg.key}</th><th>${cfg.val}</th></tr>`;
+      const tbRows = cfg.data.map(r=>`<tr><td>${r[cfg.key]||''}</td><td>${r[cfg.val]||0}</td></tr>`).join('');
+      card.innerHTML = `<h3>${cfg.title}</h3><div class="report-sub">${cfg.sub}</div>
+        <canvas id="${cid}"></canvas>
+        <table id="${tid}" style="display:none"><thead>${thRow}</thead><tbody>${tbRows}</tbody></table>
+        <div class="tbl-actions" style="margin-top:10px">
+          <button class="btn-export" onclick="exportTableExcel('${tid}')">⬇ Excel</button>
+          <button class="btn-export" onclick="exportTableCSV('${tid}')" style="border-color:rgba(99,102,241,0.3);color:#6366f1;background:rgba(99,102,241,0.08)">⬇ CSV</button>
+        </div>`;
       grid.appendChild(card);
       const labels = cfg.data.map(r => r[cfg.key]);
       const values = cfg.data.map(r => r[cfg.val] || 0);
