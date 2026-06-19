@@ -34,7 +34,7 @@ TOOLS = [
                 "properties": {
                     "model":  {"type": "string", "description": "Odoo model. E.g. rs.unit, rs.project, hr.employee, rs.contract, rs.installment, purchase.order, construction.advance.payment"},
                     "domain": {"type": "string", "description": "JSON filter string. '[]'=all. E.g. '[[\"state\",\"=\",\"sale\"]]'"},
-                    "fields": {"type": "string", "description": "MUST be a plain string (not array). Encode as JSON string. E.g. '[\"name\",\"state\",\"rs_project_id\"]'. Never pass an actual array."},
+                    "fields": {"type": "array", "items": {"type": "string"}, "description": "List of field names to return. E.g. [\"name\",\"state\",\"rs_project_id\"]"},
                     "limit":  {"type": "integer", "description": "Max rows (default 50, max 200)"},
                     "order":  {"type": "string",  "description": "Sort. E.g. 'current_sale_price desc'"}
                 },
@@ -137,7 +137,8 @@ def run_tool(name, args):
         if name == "odoo_search":
             domain = _coerce_domain(args.get("domain", []))
             limit  = min(int(args.get("limit", 50)), 200)
-            fields = _coerce_list(args.get("fields", ["display_name"]))
+            raw_fields = args.get("fields", ["display_name"])
+            fields = raw_fields if isinstance(raw_fields, list) else _coerce_list(raw_fields)
             if not fields:
                 fields = ["display_name"]
             kwargs = {"fields": fields, "limit": limit}
@@ -199,12 +200,13 @@ RULES:
 - Counts/stats: odoo_read_group. Records: odoo_search (limit 50).
 - Format numbers with commas. Prices in EGP. Use markdown tables.
 - On field error: call odoo_get_fields once to check fields, then retry.
+- You HAVE full access to all models listed below. Never say you lack access — just call odoo_search.
 
 CHARTS (include when showing statistics):
 CHART_BAR:{"title":"T","labels":["A","B"],"data":[10,20]}
 CHART_PIE:{"title":"T","labels":["A","B"],"data":[10,20]}
 
-MODELS:
+MODELS (you can query all of these):
 Real Estate: rs.project, rs.unit(unit_code,state,rs_project_id,net_area,current_sale_price,partner_id), rs.contract(partner_id,rs_unit_id,state,contracted_sale_price), rs.installment(partner_id,amount,date,state), rs.rsrvrq, rs.eoi
 Construction BOQ: boq.contract(partner_id,project_id), project.subcontracting.boq.line(name,boq_contract_id,project_id,product_id,quantity,billed_qty,remain_qty,boq_cost,work_type), project.detailed.item.line(name,project_id,quantity,done_qty,initial_cost,actual_cost,total_cost,progress_percentage)
 Payments: construction.advance.payment(name,partner_id,amount,date,state,project_id,due_amount,settled_amount,subcontractor_contract_id)
@@ -213,8 +215,11 @@ Tasks: project.task(name,project_id,stage_id,date_deadline,kanban_state,user_ids
 HR: hr.employee(name,department_id,job_title,work_phone,mobile_phone), hr.department(name,manager_id)
 Other: res.partner(name,phone,mobile,email)
 
-BOQ notes: quantity=planned, billed_qty=actual done. Over budget = billed_qty > quantity.
-FIELD-TO-FIELD COMPARISONS: Odoo domain CANNOT compare two fields (e.g. billed_qty > quantity is invalid in domain). For these queries, call odoo_search with domain=[] and fields=["name","quantity","billed_qty","remain_qty","project_id"] limit=200, then in your answer list only the rows where billed_qty > quantity based on the data returned. Never put a field name as the value in a domain filter.
+BOQ EXAMPLES — always query like this:
+- List BOQ lines: odoo_search model="project.subcontracting.boq.line" domain=[] fields=["name","project_id","quantity","billed_qty","remain_qty","boq_cost"]
+- Group by project: odoo_read_group model="project.subcontracting.boq.line" domain=[] groupby=["project_id"] aggregates=["boq_cost:sum","quantity:sum"]
+
+FIELD-TO-FIELD COMPARISONS: Odoo domain CANNOT compare two fields. For billed_qty > quantity queries: use odoo_search domain=[] fields=["name","project_id","quantity","billed_qty"] limit=200, then filter from returned data. Never put a field name as the domain value.
 Use odoo_search not odoo_read_group for field comparisons."""
 
 # ── Flask app ──────────────────────────────────────────────────────────────────
