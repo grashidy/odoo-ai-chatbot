@@ -242,7 +242,7 @@ def chat():
                 messages.append({"role": m["role"], "content": m.get("content") or ""})
 
             max_iterations = 5
-            seen_calls = {}   # detect duplicate tool calls (loop guard)
+            tool_call_counts = {}   # tool_name → how many times called total
 
             for iteration in range(max_iterations):
                 response = None
@@ -302,26 +302,17 @@ def chat():
                     yield f"data: {json.dumps({'type': 'text', 'text': text})}\n\n"
                     break
 
-                # Notify client about each tool being called
-                # Also detect if model is stuck repeating the same call
-                duplicate_detected = False
+                # Notify client and count tool calls to detect loops
                 for tc in msg.tool_calls:
                     try:
                         args = json.loads(tc.function.arguments)
                     except Exception:
                         args = {}
                     yield f"data: {json.dumps({'type': 'tool', 'name': tc.function.name, 'input': args})}\n\n"
-                    call_key = tc.function.name + ":" + tc.function.arguments
-                    if call_key in seen_calls:
-                        duplicate_detected = True
-                    seen_calls[call_key] = True
+                    tool_call_counts[tc.function.name] = tool_call_counts.get(tc.function.name, 0) + 1
 
-                if duplicate_detected:
-                    # Force a final answer instead of looping forever
-                    messages.append({
-                        "role": "user",
-                        "content": "You already retrieved this data. Please summarize the results you have and give the final answer now. Do not call any more tools."
-                    })
+                # If any single tool has been called 3+ times, stop looping
+                loop_detected = any(v >= 3 for v in tool_call_counts.values())
 
                 # Execute all tools and collect results
                 for tc in msg.tool_calls:
@@ -335,6 +326,25 @@ def chat():
                         "tool_call_id": tc.id,
                         "content": result
                     })
+
+                if loop_detected:
+                    # Force one final answer call with no more tools
+                    messages.append({
+                        "role": "user",
+                        "content": "You have enough data. Stop calling tools and give the final answer now."
+                    })
+                    try:
+                        final = client.chat.completions.create(
+                            model="llama-3.1-8b-instant",
+                            messages=messages,
+                            max_tokens=1024,
+                            temperature=0.2,
+                        )
+                        text = final.choices[0].message.content or "No response."
+                    except Exception:
+                        text = "Unable to generate final response."
+                    yield f"data: {json.dumps({'type': 'text', 'text': text})}\n\n"
+                    break
 
         except Exception as outer_err:
             # Last-resort catch — always send something to unblock the UI
