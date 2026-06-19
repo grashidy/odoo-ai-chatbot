@@ -255,7 +255,7 @@ def chat():
                 response = None
                 try:
                     response = client.chat.completions.create(
-                        model="llama3-groq-8b-8192-tool-use-preview",
+                        model="meta-llama/llama-4-scout-17b-16e-instruct",
                         messages=messages,
                         tools=TOOLS,
                         tool_choice="auto",
@@ -342,7 +342,7 @@ def chat():
                     })
                     try:
                         final = client.chat.completions.create(
-                            model="llama3-groq-8b-8192-tool-use-preview",
+                            model="meta-llama/llama-4-scout-17b-16e-instruct",
                             messages=messages,
                             max_tokens=1024,
                             temperature=0.1,
