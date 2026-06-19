@@ -214,6 +214,7 @@ HR: hr.employee(name,department_id,job_title,work_phone,mobile_phone), hr.depart
 Other: res.partner(name,phone,mobile,email)
 
 BOQ notes: quantity=planned, billed_qty=actual done. Over budget = billed_qty > quantity.
+FIELD-TO-FIELD COMPARISONS: Odoo domain CANNOT compare two fields (e.g. billed_qty > quantity is invalid in domain). For these queries, call odoo_search with domain=[] and fields=["name","quantity","billed_qty","remain_qty","project_id"] limit=200, then in your answer list only the rows where billed_qty > quantity based on the data returned. Never put a field name as the value in a domain filter.
 Use odoo_search not odoo_read_group for field comparisons."""
 
 # ── Flask app ──────────────────────────────────────────────────────────────────
@@ -259,7 +260,7 @@ def chat():
                         messages=messages,
                         tools=TOOLS,
                         tool_choice="auto",
-                        max_tokens=2048,
+                        max_tokens=4096,
                         temperature=0.1,
                     )
                 except Exception as api_err:
@@ -344,7 +345,7 @@ def chat():
                         final = client.chat.completions.create(
                             model="meta-llama/llama-4-scout-17b-16e-instruct",
                             messages=messages,
-                            max_tokens=1024,
+                            max_tokens=2048,
                             temperature=0.1,
                         )
                         text = final.choices[0].message.content or "No response."
