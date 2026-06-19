@@ -249,8 +249,10 @@ def chat():
             for m in recent:
                 messages.append({"role": m["role"], "content": m.get("content") or ""})
 
-            max_iterations = 5
+            max_iterations  = 5
             tool_call_counts = {}   # tool_name → how many times called total
+            tool_fail_count  = 0   # consecutive schema-validation failures
+            answered         = False
 
             for iteration in range(max_iterations):
                 response = None
@@ -273,6 +275,7 @@ def chat():
                         wait_sec = int(float(m_wait.group(1))) + 2 if m_wait else 65
                         if "per day" in err_msg.lower() or "tpd" in err_msg.lower() or wait_sec > 300:
                             yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ Daily API quota exhausted. Please wait a few hours or use a new Groq API key (free at console.groq.com).'})}\n\n"
+                            answered = True
                             break
                         else:
                             # Auto-wait and retry — don't make user do it manually
@@ -280,23 +283,33 @@ def chat():
                             time.sleep(wait_sec)
                             continue  # retry this iteration
                     elif is_tool_fail:
-                        # Model sent wrong types (e.g. array instead of string). Inject correction and retry.
+                        tool_fail_count += 1
+                        if tool_fail_count >= 2:
+                            # Give up after 2 consecutive schema failures — tell user
+                            yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ The AI model repeatedly sent invalid tool parameters. Please rephrase your question or try again.'})}\n\n"
+                            answered = True
+                            break
+                        # Inject correction and retry
                         schema_hint = (
                             "Your last tool call was rejected because a parameter had the wrong type. "
                             "ALL array-like parameters (fields, domain, groupby, aggregates) MUST be sent "
                             "as a plain JSON string, NOT as an actual array. "
-                            "Correct example: fields='[\"name\",\"state\"]' — the value is a string. "
-                            "Wrong: fields=[\"name\",\"state\"] — do NOT send an array. "
-                            "Please retry with string-encoded parameters."
+                            "Correct: fields='[\"name\",\"state\"]'  Wrong: fields=[\"name\",\"state\"]. "
+                            "Retry now with all parameters as strings."
                         )
                         messages.append({"role": "user", "content": schema_hint})
-                        continue  # retry the loop with the correction injected
+                        continue
                     else:
                         yield f"data: {json.dumps({'type': 'text', 'text': f'❌ API Error: {err_msg[:250]}'})}\n\n"
+                        answered = True
                     break
 
                 if response is None:
+                    yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ No response from AI. Please try again.'})}\n\n"
+                    answered = True
                     break
+
+                tool_fail_count = 0  # reset on successful API call
 
                 msg    = response.choices[0].message
                 finish = response.choices[0].finish_reason
@@ -321,6 +334,7 @@ def chat():
                 if finish in ("stop", "end_turn") or not msg.tool_calls:
                     text = msg.content or "I was unable to generate a response. Please try again."
                     yield f"data: {json.dumps({'type': 'text', 'text': text})}\n\n"
+                    answered = True
                     break
 
                 # Notify client and count tool calls to detect loops
@@ -365,7 +379,12 @@ def chat():
                     except Exception:
                         text = "Unable to generate final response."
                     yield f"data: {json.dumps({'type': 'text', 'text': text})}\n\n"
+                    answered = True
                     break
+
+            # Fallback: loop exhausted all iterations without producing an answer
+            if not answered:
+                yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ Could not complete the request after several attempts. Please rephrase and try again.'})}\n\n"
 
         except Exception as outer_err:
             # Last-resort catch — always send something to unblock the UI
