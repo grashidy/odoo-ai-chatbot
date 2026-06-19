@@ -34,7 +34,7 @@ TOOLS = [
                 "properties": {
                     "model":  {"type": "string", "description": "Odoo model. E.g. rs.unit, rs.project, hr.employee, rs.contract, rs.installment, purchase.order, construction.advance.payment"},
                     "domain": {"type": "string", "description": "JSON filter string. '[]'=all. E.g. '[[\"state\",\"=\",\"sale\"]]'"},
-                    "fields": {"type": "string", "description": "JSON array of field names. E.g. '[\"name\",\"state\",\"rs_project_id\"]'"},
+                    "fields": {"type": "string", "description": "MUST be a plain string (not array). Encode as JSON string. E.g. '[\"name\",\"state\",\"rs_project_id\"]'. Never pass an actual array."},
                     "limit":  {"type": "integer", "description": "Max rows (default 50, max 200)"},
                     "order":  {"type": "string",  "description": "Sort. E.g. 'current_sale_price desc'"}
                 },
@@ -265,7 +265,8 @@ def chat():
                     )
                 except Exception as api_err:
                     err_msg = str(api_err)
-                    is_rate = "rate_limit" in err_msg.lower() or "429" in err_msg
+                    is_rate      = "rate_limit" in err_msg.lower() or "429" in err_msg
+                    is_tool_fail = "tool_use_failed" in err_msg or "tool call validation" in err_msg.lower()
                     if is_rate:
                         # Parse actual wait time from Groq error message
                         m_wait = re.search(r'try again in ([\d.]+)s', err_msg, re.IGNORECASE)
@@ -278,6 +279,18 @@ def chat():
                             yield f"data: {json.dumps({'type': 'tool', 'name': 'wait', 'input': {'model': f'Waiting {wait_sec}s for rate limit to reset...'}})}\n\n"
                             time.sleep(wait_sec)
                             continue  # retry this iteration
+                    elif is_tool_fail:
+                        # Model sent wrong types (e.g. array instead of string). Inject correction and retry.
+                        schema_hint = (
+                            "Your last tool call was rejected because a parameter had the wrong type. "
+                            "ALL array-like parameters (fields, domain, groupby, aggregates) MUST be sent "
+                            "as a plain JSON string, NOT as an actual array. "
+                            "Correct example: fields='[\"name\",\"state\"]' — the value is a string. "
+                            "Wrong: fields=[\"name\",\"state\"] — do NOT send an array. "
+                            "Please retry with string-encoded parameters."
+                        )
+                        messages.append({"role": "user", "content": schema_hint})
+                        continue  # retry the loop with the correction injected
                     else:
                         yield f"data: {json.dumps({'type': 'text', 'text': f'❌ API Error: {err_msg[:250]}'})}\n\n"
                     break
