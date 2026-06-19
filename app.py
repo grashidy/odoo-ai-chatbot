@@ -255,7 +255,7 @@ def chat():
                 response = None
                 try:
                     response = client.chat.completions.create(
-                        model="llama-3.1-8b-instant",
+                        model="llama3-groq-8b-8192-tool-use-preview",
                         messages=messages,
                         tools=TOOLS,
                         tool_choice="auto",
@@ -342,10 +342,10 @@ def chat():
                     })
                     try:
                         final = client.chat.completions.create(
-                            model="llama-3.1-8b-instant",
+                            model="llama3-groq-8b-8192-tool-use-preview",
                             messages=messages,
                             max_tokens=1024,
-                            temperature=0.2,
+                            temperature=0.1,
                         )
                         text = final.choices[0].message.content or "No response."
                     except Exception:
