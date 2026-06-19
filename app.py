@@ -35,7 +35,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "model":  {"type": "string", "description": "Odoo model. E.g. rs.unit, rs.project, hr.employee, rs.contract, rs.installment, purchase.order, construction.advance.payment"},
-                    "domain": {"type": "string", "description": "JSON filter string. '[]'=all. E.g. '[[\"state\",\"=\",\"sale\"]]'"},
+                    "domain": {"anyOf": [{"type": "string"}, {"type": "array"}], "description": "Filter domain. Use [] for all records. E.g. [[\"state\",\"=\",\"sale\"]]"},
                     "fields": {"type": "array", "items": {"type": "string"}, "description": "List of field names to return. E.g. [\"name\",\"state\",\"rs_project_id\"]"},
                     "limit":  {"type": "integer", "description": "Max rows (default 50, max 200)"},
                     "order":  {"type": "string",  "description": "Sort. E.g. 'current_sale_price desc'"}
@@ -53,7 +53,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "model":  {"type": "string"},
-                    "domain": {"type": "string", "description": "JSON filter. '[]'=all."}
+                    "domain": {"anyOf": [{"type": "string"}, {"type": "array"}], "description": "Filter domain. Use [] for all records."}
                 },
                 "required": ["model", "domain"]
             }
@@ -82,7 +82,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "model": {"type": "string", "description": "Odoo model name."},
-                    "domain": {"type": "string", "description": "Filter domain as JSON string. Use '[]' for all. Example: '[[\"state\",\"=\",\"draft\"]]'"},
+                    "domain": {"anyOf": [{"type": "string"}, {"type": "array"}], "description": "Filter domain. Use [] for all records. E.g. [[\"state\",\"=\",\"draft\"]]"},
                     "groupby": {
                         "type": "array",
                         "items": {"type": "string"},
