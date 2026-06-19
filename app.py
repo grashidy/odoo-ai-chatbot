@@ -1,7 +1,9 @@
-import xmlrpc.client, json, os, time, re
+import xmlrpc.client, json, os, time, re, logging
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from groq import Groq
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # ── Load Groq key: env var (cloud) → .groq_key file (local) ───────────────────
 _key_file = Path(__file__).parent / ".groq_key"
@@ -82,12 +84,14 @@ TOOLS = [
                     "model": {"type": "string", "description": "Odoo model name."},
                     "domain": {"type": "string", "description": "Filter domain as JSON string. Use '[]' for all. Example: '[[\"state\",\"=\",\"draft\"]]'"},
                     "groupby": {
-                        "type": "string",
-                        "description": "Fields to group by as JSON string. E.g. '[\"rs_project_id\"]' or '[\"state\"]' or '[\"department_id\"]'."
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Fields to group by. E.g. [\"rs_project_id\"] or [\"state\"] or [\"department_id\"]."
                     },
                     "aggregates": {
-                        "type": "string",
-                        "description": "Optional: numeric fields to sum as JSON string. E.g. '[\"net_area:sum\",\"current_sale_price:sum\"]'. Use '[]' if none."
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional: numeric fields to sum. E.g. [\"net_area:sum\",\"current_sale_price:sum\"]. Use [] if none."
                     }
                 },
                 "required": ["model", "domain", "groupby"]
@@ -289,6 +293,7 @@ def chat():
                             continue  # retry this iteration
                     elif is_tool_fail:
                         tool_fail_count += 1
+                        logging.warning("tool_use_failed #%d: %s", tool_fail_count, err_msg[:400])
                         if tool_fail_count >= 2:
                             # Give up after 2 consecutive schema failures — tell user
                             yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ The AI model repeatedly sent invalid tool parameters. Please rephrase your question or try again.'})}\n\n"
