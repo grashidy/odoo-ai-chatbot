@@ -882,13 +882,18 @@ function renderMD(raw, bubble) {
     });
     tableHtml += '</tbody></table>';
 
-    // Build KPI strip from numeric columns
+    // Build KPI strip from numeric columns (skip dates, IDs, percentages that are 0)
     const numCols = {};
+    const dateHeaderRe = /date|time|تاريخ|وقت/i;
+    const dateValueRe  = /^\d{4}-\d{2}-\d{2}/;
     headers.forEach((h,ci) => {
+      if (dateHeaderRe.test(h)) return; // skip date columns by header name
+      const vals = bodyRows.map(r => (r[ci]||'').trim());
+      if (vals.some(v => dateValueRe.test(v))) return; // skip if values look like dates
       let sum = 0; let isNum = false;
-      bodyRows.forEach(r => {
-        const v = parseFloat((r[ci]||'').replace(/,/g,''));
-        if (!isNaN(v)) { sum += v; isNum = true; }
+      vals.forEach(v => {
+        const n = parseFloat(v.replace(/,/g,''));
+        if (!isNaN(n)) { sum += n; isNum = true; }
       });
       if (isNum) numCols[h] = sum;
     });
