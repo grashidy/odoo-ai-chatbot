@@ -196,7 +196,7 @@ header {
 .category-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  gap: 14px;
   width: 100%;
   margin-top: 8px;
 }
@@ -221,9 +221,12 @@ header {
   font-size: 17px;
   flex-shrink: 0;
 }
-.cat-icon.re  { background: rgba(99,102,241,0.15); }
-.cat-icon.con { background: rgba(245,158,11,0.15); }
-.cat-icon.hr  { background: rgba(16,185,129,0.15); }
+.cat-icon.re   { background: rgba(99,102,241,0.15); }
+.cat-icon.con  { background: rgba(245,158,11,0.15); }
+.cat-icon.pay  { background: rgba(16,185,129,0.15); }
+.cat-icon.po   { background: rgba(239,68,68,0.15);  }
+.cat-icon.task { background: rgba(59,130,246,0.15); }
+.cat-icon.hr   { background: rgba(168,85,247,0.15); }
 
 .cat-title { font-size: 13px; font-weight: 600; color: var(--text); }
 .cat-sub   { font-size: 11px; color: var(--text3); margin-top: 1px; }
@@ -532,52 +535,102 @@ header {
 <!-- Welcome template (hidden, used to restore on New Chat) -->
 <template id="welcome-tpl">
   <div class="welcome-hero">
-    <div class="welcome-hero-icon">🏙️</div>
+    <div class="welcome-hero-icon">🏗️</div>
     <h2>What would you like to know?</h2>
-    <p>Ask anything about your Odoo data — real estate units, construction BOQ, contracts, employees, purchase orders and more. Answer in Arabic or English.</p>
+    <p>Ask anything about your real estate, construction, purchases, or HR data — in Arabic or English.</p>
   </div>
   <div class="category-grid">
+
+    <!-- Real Estate -->
     <div class="cat-card">
       <div class="cat-header">
         <div class="cat-icon re">🏢</div>
         <div>
           <div class="cat-title">Real Estate</div>
-          <div class="cat-sub">Units · Projects · Contracts</div>
+          <div class="cat-sub">Units · Projects · Contracts · Installments</div>
         </div>
       </div>
       <div class="suggestion" onclick="suggest(this)">How many units are available in each project?</div>
       <div class="suggestion" onclick="suggest(this)">ما هي الوحدات المتاحة للبيع مع أسعارها؟</div>
       <div class="suggestion" onclick="suggest(this)">Show contracted units with client names and prices</div>
-      <div class="suggestion" onclick="suggest(this)">ما أغلى وحدة للبيع وما مساحتها؟</div>
-      <div class="suggestion" onclick="suggest(this)">How many units are in each state (available, booked, contracted)?</div>
+      <div class="suggestion" onclick="suggest(this)">How many units are in each state (available, reserved, sold)?</div>
     </div>
+
+    <!-- BOQ Assistant -->
     <div class="cat-card">
       <div class="cat-header">
-        <div class="cat-icon con">🏗️</div>
+        <div class="cat-icon con">📋</div>
         <div>
-          <div class="cat-title">Construction</div>
-          <div class="cat-sub">BOQ · Purchases · Tasks</div>
+          <div class="cat-title">BOQ Assistant</div>
+          <div class="cat-sub">Contracts · Items · Budget vs Actual</div>
         </div>
       </div>
-      <div class="suggestion" onclick="suggest(this)">Show all BOQ contracts with their projects</div>
-      <div class="suggestion" onclick="suggest(this)">اعرض طلبات الشراء مع إجمالي قيمتها</div>
-      <div class="suggestion" onclick="suggest(this)">List all purchase orders with amounts and status</div>
-      <div class="suggestion" onclick="suggest(this)">Show BOQ items and their work types</div>
-      <div class="suggestion" onclick="suggest(this)">اعرض المدفوعات المقدمة للمقاولين</div>
+      <div class="suggestion" onclick="suggest(this)">Show all BOQ contracts with total values</div>
+      <div class="suggestion" onclick="suggest(this)">Which BOQ items have actual quantity exceeding planned quantity?</div>
+      <div class="suggestion" onclick="suggest(this)">ما هي بنود الأعمال التي تجاوزت الكميات المخططة؟</div>
+      <div class="suggestion" onclick="suggest(this)">Compare planned vs actual quantities for all BOQ items</div>
     </div>
+
+    <!-- Contractor Payments -->
+    <div class="cat-card">
+      <div class="cat-header">
+        <div class="cat-icon pay">💰</div>
+        <div>
+          <div class="cat-title">Contractor Payments</div>
+          <div class="cat-sub">Advance Payments · Status · Contractors</div>
+        </div>
+      </div>
+      <div class="suggestion" onclick="suggest(this)">اعرض المدفوعات المقدمة للمقاولين</div>
+      <div class="suggestion" onclick="suggest(this)">Show all advance payments made this month</div>
+      <div class="suggestion" onclick="suggest(this)">Which contractors have unpaid advance payments?</div>
+      <div class="suggestion" onclick="suggest(this)">كم إجمالي المدفوعات المقدمة لكل مقاول؟</div>
+    </div>
+
+    <!-- Purchase Orders -->
+    <div class="cat-card">
+      <div class="cat-header">
+        <div class="cat-icon po">🛒</div>
+        <div>
+          <div class="cat-title">Purchase Orders</div>
+          <div class="cat-sub">Suppliers · Spending · Orders</div>
+        </div>
+      </div>
+      <div class="suggestion" onclick="suggest(this)">Which suppliers have the most purchase orders?</div>
+      <div class="suggestion" onclick="suggest(this)">اعرض طلبات الشراء مع إجمالي قيمتها</div>
+      <div class="suggestion" onclick="suggest(this)">Show total spending per supplier this year</div>
+      <div class="suggestion" onclick="suggest(this)">List all confirmed purchase orders with amounts</div>
+    </div>
+
+    <!-- Project Progress -->
+    <div class="cat-card">
+      <div class="cat-header">
+        <div class="cat-icon task">📊</div>
+        <div>
+          <div class="cat-title">Project Progress</div>
+          <div class="cat-sub">Tasks · Deadlines · Blockers</div>
+        </div>
+      </div>
+      <div class="suggestion" onclick="suggest(this)">Which tasks are overdue across all projects?</div>
+      <div class="suggestion" onclick="suggest(this)">Show blocked tasks that need attention</div>
+      <div class="suggestion" onclick="suggest(this)">ما هي المهام المتأخرة في المشاريع؟</div>
+      <div class="suggestion" onclick="suggest(this)">Show tasks grouped by project with their status</div>
+    </div>
+
+    <!-- HR -->
     <div class="cat-card">
       <div class="cat-header">
         <div class="cat-icon hr">👥</div>
         <div>
           <div class="cat-title">HR &amp; Employees</div>
-          <div class="cat-sub">Staff · Departments · Jobs</div>
+          <div class="cat-sub">Staff · Departments · Contacts</div>
         </div>
       </div>
       <div class="suggestion" onclick="suggest(this)">كم عدد الموظفين في كل إدارة؟</div>
       <div class="suggestion" onclick="suggest(this)">List all employees with their job titles and departments</div>
-      <div class="suggestion" onclick="suggest(this)">Show employees grouped by department</div>
       <div class="suggestion" onclick="suggest(this)">اعرض قائمة الموظفين مع أرقام هواتفهم</div>
+      <div class="suggestion" onclick="suggest(this)">Show employees grouped by department with count</div>
     </div>
+
   </div>
 </template>
 

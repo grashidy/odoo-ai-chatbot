@@ -195,19 +195,56 @@ Reply in the same language as the user (Arabic or English).
 
 RULES:
 - Use tools to fetch real data. Never guess numbers.
-- For counts/statistics: use odoo_read_group. For records: use odoo_search (limit 50, max 200).
-- Format numbers with commas. Prices in EGP. Use tables for lists.
-- On tool error: try odoo_get_fields to find correct field names.
+- Call each tool at most ONCE per question. Do not repeat the same tool call.
+- For counts/statistics: use odoo_read_group (returns count per group). For records: use odoo_search (limit 50).
+- Format numbers with commas. Prices in EGP. Use markdown tables for lists.
+- On tool error: try odoo_get_fields to find correct field names, then retry once.
 
-CHART: For statistics include exactly one line:
-CHART_BAR:{"title":"T","labels":["A","B"],"data":[10,20]}  (bar chart)
-CHART_PIE:{"title":"T","labels":["A","B"],"data":[10,20]}  (donut chart)
+CHART: For statistics always include one chart line:
+CHART_BAR:{"title":"T","labels":["A","B"],"data":[10,20]}
+CHART_PIE:{"title":"T","labels":["A","B"],"data":[10,20]}
 
-KEY MODELS:
-Real Estate: rs.project, rs.unit (fields: unit_code,state,rs_project_id,bedrooms,net_area,current_sale_price,partner_id), rs.contract, rs.rsrvrq, rs.installment, rs.eoi
-Construction: boq.contract, project.boq.item, construction.advance.payment, purchase.order (fields: name,partner_id,state,amount_total,date_order), project.task
-HR: hr.employee (fields: name,department_id,job_id,job_title,work_phone,mobile_phone), hr.department
-Other: res.partner, account.analytic.account"""
+KEY MODELS & FIELDS:
+
+REAL ESTATE:
+- rs.project: display_name, state, analytic_account_id
+- rs.unit: unit_code, state, rs_project_id, unit_type, bedrooms, net_area, current_sale_price, partner_id
+  states: available, reserved, sold, blocked
+- rs.contract: display_name, partner_id, rs_unit_id, state, contracted_sale_price, date_contract
+- rs.rsrvrq: display_name, partner_id, rs_unit_id, state, date
+- rs.installment: display_name, partner_id, amount, date, state, rs_contract_id
+  states: draft, posted, paid, overdue
+- rs.eoi: display_name, partner_id, rs_unit_id, amount, state
+
+CONSTRUCTION (BOQ):
+- boq.contract: display_name, partner_id, state, total_amount, project_id, date_start, date_end
+  Use for: contractor contracts, contract values, contract status
+- project.boq.item: display_name, boq_contract_id, product_id, planned_qty, actual_qty, unit_price, total_planned, total_actual
+  Use for: BOQ details, over/under budget items, quantity comparison
+  Over budget = actual_qty > planned_qty
+- construction.advance.payment: display_name, partner_id, amount, date, state, boq_contract_id
+  Use for: advance payments to contractors, payment tracking
+  states: draft, confirmed, paid
+
+PURCHASE ORDERS:
+- purchase.order: name, partner_id, state, amount_total, date_order, date_planned, currency_id
+  states: draft, sent, purchase, done, cancel
+  Use for: supplier orders, spending analysis, PO tracking
+- purchase.order.line: order_id, product_id, product_qty, price_unit, price_subtotal, name
+
+PROJECT & TASKS:
+- project.task: name, project_id, user_ids, stage_id, date_deadline, priority, kanban_state, description
+  kanban_state: normal=on_track, done=ready, blocked=blocked
+  Use for: overdue tasks (date_deadline < today), task progress, blockers
+- project.project: name, user_id, date_start, date, analytic_account_id
+
+HR:
+- hr.employee: name, department_id, job_id, job_title, work_phone, mobile_phone, work_email
+- hr.department: name, manager_id, member_ids
+
+OTHER:
+- res.partner: name, phone, mobile, email, is_company
+- account.analytic.account: name, code, plan_id"""
 
 # ── Flask app ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
