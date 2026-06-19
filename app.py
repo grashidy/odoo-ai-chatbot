@@ -365,6 +365,62 @@ def chat():
                     mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+@app.route("/reports-data")
+@app.route("/ai/reports-data")
+def reports_data():
+    def safe(model, method, args, kwargs=None):
+        try:
+            return odoo_call(model, method, args, kwargs or {})
+        except Exception as e:
+            return {"error": str(e)}
+
+    # Real Estate: units by state
+    units_by_state = safe("rs.unit", "read_group", [[], ["state"], ["state"]], {"lazy": False})
+    # Real Estate: units by project
+    units_by_project = safe("rs.unit", "read_group", [[], ["rs_project_id"], ["rs_project_id"]], {"lazy": False})
+    # Real Estate: installments by state
+    install_by_state = safe("rs.installment", "read_group", [[], ["state"], ["state"]], {"lazy": False})
+    # HR: employees by department
+    emp_by_dept = safe("hr.employee", "read_group", [[], ["department_id"], ["department_id"]], {"lazy": False})
+    # Purchases: top 10 vendors by total
+    po_by_vendor = safe("purchase.order", "read_group",
+        [[["state", "in", ["purchase", "done"]]], ["partner_id", "amount_total:sum"], ["partner_id"]],
+        {"lazy": False, "limit": 10, "orderby": "amount_total desc"})
+    # Advance payments summary
+    adv_by_state = safe("construction.advance.payment", "read_group", [[], ["state"], ["state"]], {"lazy": False})
+    # Advance payments by project
+    adv_by_project = safe("construction.advance.payment", "read_group",
+        [[], ["project_id", "amount:sum"], ["project_id"]], {"lazy": False})
+    # BOQ contracts count by project
+    boq_by_project = safe("boq.contract", "read_group", [[], ["project_id"], ["project_id"]], {"lazy": False})
+
+    def extract(rows, label_field, count_field="__count", amount_field=None):
+        if isinstance(rows, dict) and "error" in rows:
+            return {"error": rows["error"]}
+        out = []
+        for r in rows:
+            lbl = r.get(label_field)
+            if isinstance(lbl, (list, tuple)):
+                lbl = lbl[1]
+            elif not lbl:
+                lbl = "غير محدد"
+            entry = {"label": str(lbl), "count": r.get(count_field, 0)}
+            if amount_field:
+                entry["amount"] = r.get(amount_field, 0)
+            out.append(entry)
+        return out
+
+    return jsonify({
+        "units_by_state":    extract(units_by_state,    "state"),
+        "units_by_project":  extract(units_by_project,  "rs_project_id"),
+        "install_by_state":  extract(install_by_state,  "state"),
+        "emp_by_dept":       extract(emp_by_dept,       "department_id"),
+        "po_by_vendor":      extract(po_by_vendor,      "partner_id", amount_field="amount_total"),
+        "adv_by_state":      extract(adv_by_state,      "state"),
+        "adv_by_project":    extract(adv_by_project,    "project_id", amount_field="amount"),
+        "boq_by_project":    extract(boq_by_project,    "project_id"),
+    })
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
