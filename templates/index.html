@@ -900,9 +900,10 @@ function renderMD(raw, bubble) {
     });
     kpiHtml += `</div>`;
 
+    const tblTitle = headers.join('_') || 'table';
     const actionsHtml = `<div class="tbl-actions">
-      <button class="btn-export" onclick="exportTableExcel('${tblId}')">⬇ Export Excel</button>
-      <button class="btn-export" onclick="exportTableCSV('${tblId}')" style="border-color:rgba(99,102,241,0.3);color:#6366f1;background:rgba(99,102,241,0.08)">⬇ Export CSV</button>
+      <button class="btn-export" onclick="exportTableExcel('${tblId}','${tblTitle}')">⬇ Export Excel</button>
+      <button class="btn-export" onclick="exportTableCSV('${tblId}','${tblTitle}')" style="border-color:rgba(99,102,241,0.3);color:#6366f1;background:rgba(99,102,241,0.08)">⬇ Export CSV</button>
     </div>`;
 
     return `<div class="tbl-wrap">${kpiHtml}${tableHtml}${actionsHtml}</div>`;
@@ -1086,16 +1087,21 @@ async function sendMessage() {
 }
 
 // ── Excel / CSV export ─────────────────────────────────────────────────────────
-function exportTableExcel(tblId) {
+function _exportFilename(title, ext) {
+  const safe = (title || 'odoo_export').replace(/[\\/:"*?<>|]/g, '').trim().replace(/\s+/g, '_');
+  return safe + '_' + new Date().toISOString().slice(0,10) + '.' + ext;
+}
+
+function exportTableExcel(tblId, title) {
   const tbl = document.getElementById(tblId);
   if (!tbl || typeof XLSX === 'undefined') { alert('SheetJS not loaded'); return; }
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.table_to_sheet(tbl);
-  XLSX.utils.book_append_sheet(wb, ws, 'Data');
-  XLSX.writeFile(wb, 'odoo_export_' + new Date().toISOString().slice(0,10) + '.xlsx');
+  XLSX.utils.book_append_sheet(wb, ws, (title || 'Data').slice(0, 31));
+  XLSX.writeFile(wb, _exportFilename(title, 'xlsx'));
 }
 
-function exportTableCSV(tblId) {
+function exportTableCSV(tblId, title) {
   const tbl = document.getElementById(tblId);
   if (!tbl) return;
   const rows = Array.from(tbl.querySelectorAll('tr'));
@@ -1106,7 +1112,7 @@ function exportTableCSV(tblId) {
   const blob = new Blob([csv], {type:'text/csv'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'odoo_export_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.download = _exportFilename(title, 'csv');
   a.click();
 }
 
@@ -1186,8 +1192,8 @@ async function loadReports() {
         <canvas id="${cid}"></canvas>
         <table id="${tid}" style="display:none"><thead>${thRow}</thead><tbody>${tbRows}</tbody></table>
         <div class="tbl-actions" style="margin-top:10px">
-          <button class="btn-export" onclick="exportTableExcel('${tid}')">⬇ Excel</button>
-          <button class="btn-export" onclick="exportTableCSV('${tid}')" style="border-color:rgba(99,102,241,0.3);color:#6366f1;background:rgba(99,102,241,0.08)">⬇ CSV</button>
+          <button class="btn-export" onclick="exportTableExcel('${tid}','${cfg.title}')">⬇ Excel</button>
+          <button class="btn-export" onclick="exportTableCSV('${tid}','${cfg.title}')" style="border-color:rgba(99,102,241,0.3);color:#6366f1;background:rgba(99,102,241,0.08)">⬇ CSV</button>
         </div>`;
       grid.appendChild(card);
       const labels = cfg.data.map(r => r[cfg.key]);
