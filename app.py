@@ -191,62 +191,30 @@ def run_tool(name, args):
 
 # ── System prompt ──────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are an AI assistant for a real estate & construction company on Odoo 18.
-Reply in the same language as the user (Arabic or English).
+Reply in same language as user (Arabic or English).
 
 RULES:
-- Use tools to fetch real data. Never guess numbers.
-- Call each tool at most ONCE per question. Do not repeat the same tool call.
-- For counts/statistics: use odoo_read_group (returns count per group). For records: use odoo_search (limit 50).
-- Format numbers with commas. Prices in EGP. Use markdown tables for lists.
-- On tool error: try odoo_get_fields to find correct field names, then retry once.
+- Use tools for real data. Never guess numbers.
+- Each tool call at most ONCE. No repeating same tool.
+- Counts/stats: odoo_read_group. Records: odoo_search (limit 50).
+- Format numbers with commas. Prices in EGP. Use markdown tables.
+- On field error: call odoo_get_fields once to check fields, then retry.
 
-CHART: For statistics always include one chart line:
+CHARTS (include when showing statistics):
 CHART_BAR:{"title":"T","labels":["A","B"],"data":[10,20]}
 CHART_PIE:{"title":"T","labels":["A","B"],"data":[10,20]}
 
-KEY MODELS & FIELDS:
+MODELS:
+Real Estate: rs.project, rs.unit(unit_code,state,rs_project_id,net_area,current_sale_price,partner_id), rs.contract(partner_id,rs_unit_id,state,contracted_sale_price), rs.installment(partner_id,amount,date,state), rs.rsrvrq, rs.eoi
+Construction BOQ: boq.contract(partner_id,project_id), project.subcontracting.boq.line(name,boq_contract_id,project_id,product_id,quantity,billed_qty,remain_qty,boq_cost,work_type), project.detailed.item.line(name,project_id,quantity,done_qty,initial_cost,actual_cost,total_cost,progress_percentage)
+Payments: construction.advance.payment(name,partner_id,amount,date,state,project_id,due_amount,settled_amount,subcontractor_contract_id)
+Purchases: purchase.order(name,partner_id,state,amount_total,date_order,project_id), purchase.order.line(order_id,product_id,product_qty,price_unit,price_subtotal)
+Tasks: project.task(name,project_id,stage_id,date_deadline,kanban_state,user_ids), project.project(name,user_id)
+HR: hr.employee(name,department_id,job_title,work_phone,mobile_phone), hr.department(name,manager_id)
+Other: res.partner(name,phone,mobile,email)
 
-REAL ESTATE:
-- rs.project: display_name, state, analytic_account_id
-- rs.unit: unit_code, state, rs_project_id, unit_type, bedrooms, net_area, current_sale_price, partner_id
-  states: available, reserved, sold, blocked
-- rs.contract: display_name, partner_id, rs_unit_id, state, contracted_sale_price, date_contract
-- rs.rsrvrq: display_name, partner_id, rs_unit_id, state, date
-- rs.installment: display_name, partner_id, amount, date, state, rs_contract_id
-  states: draft, posted, paid, overdue
-- rs.eoi: display_name, partner_id, rs_unit_id, amount, state
-
-CONSTRUCTION (BOQ):
-- boq.contract: display_name, partner_id (Subcontractor), project_id
-  Use for: list of BOQ contracts per project/contractor
-- project.subcontracting.boq.line: name, boq_contract_id, project_id, product_id, quantity (planned qty), billed_qty (actual billed), remain_qty, assigned_qty, boq_cost (unit price), unit_cost, work_type, overdue_qty
-  Use for: BOQ line items, planned vs billed quantities, remaining work
-  Over budget = billed_qty > quantity
-- project.detailed.item.line: name, project_id, product_id, quantity, done_qty, initial_cost, actual_cost, total_cost, unit_cost, progress_percentage
-  Use for: detailed cost comparison planned vs actual, progress %
-- construction.advance.payment: name, partner_id, amount, date, state, project_id, due_amount, settled_amount, subcontractor_contract_id, payment_type
-  Use for: advance payments to contractors
-  states: draft, confirmed, paid (verify with odoo_get_fields if unsure)
-
-PURCHASE ORDERS:
-- purchase.order: name, partner_id (Vendor), state, amount_total, date_order, project_id, is_construction, user_id
-  states: draft, sent, purchase (confirmed), done, cancel
-  Use for: supplier orders, spending analysis, PO tracking
-- purchase.order.line: order_id, product_id, product_qty, price_unit, price_subtotal, name, date_planned
-
-PROJECT & TASKS:
-- project.task: name, project_id, user_ids, stage_id, date_deadline, priority, kanban_state, description
-  kanban_state: normal=on_track, done=ready, blocked=blocked
-  Use for: overdue tasks (date_deadline < today), task progress, blockers
-- project.project: name, user_id, date_start, date, analytic_account_id
-
-HR:
-- hr.employee: name, department_id, job_id, job_title, work_phone, mobile_phone, work_email
-- hr.department: name, manager_id, member_ids
-
-OTHER:
-- res.partner: name, phone, mobile, email, is_company
-- account.analytic.account: name, code, plan_id"""
+BOQ notes: quantity=planned, billed_qty=actual done. Over budget = billed_qty > quantity.
+Use odoo_search not odoo_read_group for field comparisons."""
 
 # ── Flask app ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -291,8 +259,8 @@ def chat():
                         messages=messages,
                         tools=TOOLS,
                         tool_choice="auto",
-                        max_tokens=1024,
-                        temperature=0.2,
+                        max_tokens=2048,
+                        temperature=0.1,
                     )
                 except Exception as api_err:
                     err_msg = str(api_err)
