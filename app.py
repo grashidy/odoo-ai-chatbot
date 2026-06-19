@@ -217,20 +217,22 @@ REAL ESTATE:
 - rs.eoi: display_name, partner_id, rs_unit_id, amount, state
 
 CONSTRUCTION (BOQ):
-- boq.contract: display_name, partner_id, state, total_amount, project_id, date_start, date_end
-  Use for: contractor contracts, contract values, contract status
-- project.boq.item: display_name, boq_contract_id, product_id, planned_qty, actual_qty, unit_price, total_planned, total_actual
-  Use for: BOQ details, over/under budget items, quantity comparison
-  Over budget = actual_qty > planned_qty
-- construction.advance.payment: display_name, partner_id, amount, date, state, boq_contract_id
-  Use for: advance payments to contractors, payment tracking
-  states: draft, confirmed, paid
+- boq.contract: display_name, partner_id (Subcontractor), project_id
+  Use for: list of BOQ contracts per project/contractor
+- project.subcontracting.boq.line: name, boq_contract_id, project_id, product_id, quantity (planned qty), billed_qty (actual billed), remain_qty, assigned_qty, boq_cost (unit price), unit_cost, work_type, overdue_qty
+  Use for: BOQ line items, planned vs billed quantities, remaining work
+  Over budget = billed_qty > quantity
+- project.detailed.item.line: name, project_id, product_id, quantity, done_qty, initial_cost, actual_cost, total_cost, unit_cost, progress_percentage
+  Use for: detailed cost comparison planned vs actual, progress %
+- construction.advance.payment: name, partner_id, amount, date, state, project_id, due_amount, settled_amount, subcontractor_contract_id, payment_type
+  Use for: advance payments to contractors
+  states: draft, confirmed, paid (verify with odoo_get_fields if unsure)
 
 PURCHASE ORDERS:
-- purchase.order: name, partner_id, state, amount_total, date_order, date_planned, currency_id
-  states: draft, sent, purchase, done, cancel
+- purchase.order: name, partner_id (Vendor), state, amount_total, date_order, project_id, is_construction, user_id
+  states: draft, sent, purchase (confirmed), done, cancel
   Use for: supplier orders, spending analysis, PO tracking
-- purchase.order.line: order_id, product_id, product_qty, price_unit, price_subtotal, name
+- purchase.order.line: order_id, product_id, product_qty, price_unit, price_subtotal, name, date_planned
 
 PROJECT & TASKS:
 - project.task: name, project_id, user_ids, stage_id, date_deadline, priority, kanban_state, description
