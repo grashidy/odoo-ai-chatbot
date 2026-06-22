@@ -217,40 +217,91 @@ CHARTS (include when showing statistics):
 CHART_BAR:{"title":"T","labels":["A","B"],"data":[10,20]}
 CHART_PIE:{"title":"T","labels":["A","B"],"data":[10,20]}
 
-CONSTRUCTION MODELS (primary focus):
-BOQ Contracts:         boq.contract(name,partner_id,project_id,state)
-BOQ Lines:             project.subcontracting.boq.line(name,boq_contract_id,project_id,product_id,quantity,billed_qty,remain_qty,boq_cost,work_type)
-Detailed Items:        project.detailed.item.line(name,project_id,quantity,done_qty,initial_cost,actual_cost,total_cost,progress_percentage)
-Subcontractor Contract:subcontractor.contract(name,date,project_id,partner_id,status,bills_amount_total,bills_amount_due,total_adv_amount,total_deductions)
-Contract Lines:        subcontractor.contract.line(name,contract_id,project_id,work_type,quantity,assigned_qty,remain_qty,billed_qty,billed_amount,unit_price,total_price,install,supply,transportation,labor,misc)
-Advance Payments:      construction.advance.payment(name,partner_id,amount,date,state,project_id,due_amount,settled_amount,subcontractor_contract_id)
-Subcontractor Orders:  subcontractor.order(partner_id,qty,state,production_plan_id)
-BOQ Progress:          subcontract.boq.progress.line(name,project_id)
-Projects:              project.project(name,user_id)
-Tasks:                 project.task(name,project_id,stage_id,date_deadline,kanban_state,user_ids)
-Purchases:             purchase.order(name,partner_id,state,amount_total,date_order,project_id)
-Purchase Lines:        purchase.order.line(order_id,product_id,product_qty,price_unit,price_subtotal)
-Partners:              res.partner(name,phone,mobile,email)
-HR:                    hr.employee(name,department_id,job_title,work_phone,mobile_phone), hr.department(name,manager_id)
+═══════════════════════════════════════════════
+MODEL ROUTING — always pick the correct model:
+═══════════════════════════════════════════════
+"contract value / قيمة العقود / عقود المقاولين"
+  → subcontractor.contract  (has bills_amount_total, bills_amount_due)
+  → NEVER use boq.contract for financial/value questions
 
-REAL ESTATE MODELS (only use when user explicitly asks about real estate/عقارات):
+"BOQ lines / بنود المقايسة / supply & install quantities"
+  → project.subcontracting.boq.line  (has boq_cost, quantity, billed_qty)
+
+"BOQ structure / مقايسة master record"
+  → boq.contract  (structural only, NO financial fields)
+
+"contract line items / بنود العقد / unit price per item"
+  → subcontractor.contract.line  (has unit_price, total_price, quantity)
+
+"advance payments / دفعات مقدمة / مقدمات"
+  → construction.advance.payment
+
+"detailed progress / تقدم الأعمال / actual vs planned cost"
+  → project.detailed.item.line
+
+═══════════════════════════════════════════════
+CONSTRUCTION MODELS:
+═══════════════════════════════════════════════
+subcontractor.contract      → name, date, project_id, partner_id, status,
+                               bills_amount_total, bills_amount_due,
+                               total_adv_amount, total_deductions
+subcontractor.contract.line → name, contract_id, project_id, work_type,
+                               quantity, assigned_qty, remain_qty,
+                               billed_qty, billed_amount,
+                               unit_price, total_price,
+                               install, supply, transportation, labor, misc
+project.subcontracting.boq.line → name, boq_contract_id, project_id,
+                               product_id, quantity, billed_qty,
+                               remain_qty, boq_cost, work_type
+boq.contract                → name, partner_id, project_id, state
+project.detailed.item.line  → name, project_id, quantity, done_qty,
+                               initial_cost, actual_cost, total_cost,
+                               progress_percentage
+construction.advance.payment→ name, partner_id, amount, date, state,
+                               project_id, due_amount, settled_amount,
+                               subcontractor_contract_id
+subcontractor.order         → partner_id, qty, state, production_plan_id
+subcontract.boq.progress.line→ name, project_id
+project.project             → name, user_id
+project.task                → name, project_id, stage_id, date_deadline,
+                               kanban_state, user_ids
+purchase.order              → name, partner_id, state, amount_total,
+                               date_order, project_id
+purchase.order.line         → order_id, product_id, product_qty,
+                               price_unit, price_subtotal
+hr.employee                 → name, department_id, job_title,
+                               work_phone, mobile_phone
+hr.department               → name, manager_id
+res.partner                 → name, phone, mobile, email
+
+REAL ESTATE (ONLY when user explicitly says real estate/عقارات):
 rs.project, rs.unit(unit_code,state,rs_project_id,net_area,current_sale_price,partner_id)
 rs.contract(partner_id,rs_unit_id,state,contracted_sale_price), rs.installment(partner_id,amount,date,state)
 
-CONSTRUCTION QUERY EXAMPLES:
-- Subcontractor contracts:      odoo_search model="subcontractor.contract" domain=[] fields=["name","partner_id","project_id","status","bills_amount_total","bills_amount_due","total_adv_amount"]
-- Contract value per project:   odoo_read_group model="subcontractor.contract" domain=[] groupby=["project_id"] aggregates=["bills_amount_total:sum","bills_amount_due:sum"]
-- Contract lines per contract:  odoo_search model="subcontractor.contract.line" domain=[] fields=["name","contract_id","project_id","quantity","billed_qty","unit_price","total_price","work_type"]
-- Contract value per partner:   odoo_read_group model="subcontractor.contract" domain=[] groupby=["partner_id"] aggregates=["bills_amount_total:sum"]
-- List BOQ lines:                odoo_search model="project.subcontracting.boq.line" domain=[] fields=["name","project_id","quantity","billed_qty","remain_qty","boq_cost"]
-- Count BOQ per project:        odoo_read_group model="project.subcontracting.boq.line" domain=[] groupby=["project_id"] aggregates=["boq_cost:sum","quantity:sum"]
-- Advance payments:             odoo_search model="construction.advance.payment" domain=[] fields=["name","partner_id","amount","state","project_id","due_amount","settled_amount"]
-- Payments per project:         odoo_read_group model="construction.advance.payment" domain=[] groupby=["project_id"] aggregates=["amount:sum","due_amount:sum"]
-- Progress per project:         odoo_read_group model="project.detailed.item.line" domain=[] groupby=["project_id"] aggregates=["total_cost:sum","actual_cost:sum"]
+═══════════════════════════════════════════════
+QUERY EXAMPLES:
+═══════════════════════════════════════════════
+Contract value per project:
+  odoo_read_group model="subcontractor.contract" domain=[] groupby=["project_id"] aggregates=["bills_amount_total:sum","bills_amount_due:sum"]
 
-COUNTING: Use odoo_read_group with aggregates=[] to get count per group. Count is returned as 'count' field automatically — never add 'id:count' to aggregates.
+List subcontractor contracts:
+  odoo_search model="subcontractor.contract" domain=[] fields=["name","partner_id","project_id","status","bills_amount_total","bills_amount_due","total_adv_amount"]
 
-FIELD-TO-FIELD COMPARISONS: Odoo domain CANNOT compare two fields directly. For billed_qty > quantity queries: use odoo_search domain=[] fields=["name","project_id","quantity","billed_qty"] limit=200, then filter from the returned data. Never put a field name as the domain value."""
+Contract lines (بنود العقد):
+  odoo_search model="subcontractor.contract.line" domain=[] fields=["name","contract_id","project_id","quantity","billed_qty","unit_price","total_price","work_type"]
+
+BOQ lines per project:
+  odoo_read_group model="project.subcontracting.boq.line" domain=[] groupby=["project_id"] aggregates=["boq_cost:sum","quantity:sum"]
+
+Advance payments per project:
+  odoo_read_group model="construction.advance.payment" domain=[] groupby=["project_id"] aggregates=["amount:sum","due_amount:sum"]
+
+Progress per project:
+  odoo_read_group model="project.detailed.item.line" domain=[] groupby=["project_id"] aggregates=["total_cost:sum","actual_cost:sum"]
+
+COUNTING: odoo_read_group with aggregates=[] returns 'count' automatically. NEVER add 'id:count' to aggregates.
+
+FIELD-TO-FIELD COMPARISONS: Odoo domain cannot compare two fields. For billed_qty > quantity: use odoo_search domain=[] limit=200, then filter in Python from returned data."""
 
 # ── Flask app ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
