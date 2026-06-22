@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Import BOQ — Odoo AI Assistant</title>
+<style>
+:root {
+  --bg: #0d0d1a; --surface: #13132a; --surface2: #1a1a35;
+  --border: #2a2a50; --accent: #7c6af7; --accent2: #9b8ff9;
+  --green: #22c55e; --red: #ef4444; --amber: #f59e0b;
+  --text: #e2e2f0; --muted: #8888aa;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
+
+header {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 14px 24px; display: flex; align-items: center; gap: 16px;
+}
+header .logo { font-size: 1.1rem; font-weight: 700; color: var(--accent2); }
+header .back { color: var(--muted); text-decoration: none; font-size: .85rem; }
+header .back:hover { color: var(--text); }
+
+.container { max-width: 960px; margin: 32px auto; padding: 0 20px; }
+h2 { font-size: 1.4rem; margin-bottom: 8px; }
+.sub { color: var(--muted); font-size: .9rem; margin-bottom: 28px; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 24px; margin-bottom: 20px;
+}
+.card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 16px; color: var(--accent2); }
+
+/* Drop zone */
+.drop-zone {
+  border: 2px dashed var(--border); border-radius: 10px;
+  padding: 40px; text-align: center; cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+.drop-zone:hover, .drop-zone.over { border-color: var(--accent); background: rgba(124,106,247,.06); }
+.drop-zone .icon { font-size: 2.4rem; margin-bottom: 10px; }
+.drop-zone p { color: var(--muted); font-size: .9rem; }
+.drop-zone strong { color: var(--text); }
+#file-input { display: none; }
+#file-name { margin-top: 10px; font-size: .85rem; color: var(--green); min-height: 20px; }
+
+/* Form */
+label { display: block; font-size: .85rem; color: var(--muted); margin-bottom: 6px; }
+select, input[type=text], input[type=password] {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 14px; color: var(--text);
+  font-size: .9rem; outline: none;
+}
+select:focus, input:focus { border-color: var(--accent); }
+
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 600px) { .row2 { grid-template-columns: 1fr; } }
+
+.check-group { display: flex; gap: 20px; flex-wrap: wrap; }
+.check-group label {
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer; font-size: .9rem; color: var(--text);
+}
+.check-group input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+
+/* Buttons */
+.btn {
+  padding: 11px 24px; border-radius: 8px; border: none;
+  font-size: .9rem; font-weight: 600; cursor: pointer; transition: opacity .2s;
+}
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--accent2); }
+.btn-success { background: var(--green); color: #fff; }
+.btn-success:hover:not(:disabled) { background: #16a34a; }
+.btn-sm { padding: 6px 14px; font-size: .8rem; }
+
+/* Steps */
+.steps { display: flex; gap: 0; margin-bottom: 28px; }
+.step {
+  flex: 1; text-align: center; padding: 10px 4px;
+  font-size: .78rem; color: var(--muted); position: relative;
+}
+.step.active { color: var(--accent2); font-weight: 600; }
+.step.done { color: var(--green); }
+.step::after {
+  content: ''; position: absolute; top: 50%; right: 0;
+  width: 1px; height: 50%; background: var(--border);
+  transform: translateY(-50%);
+}
+.step:last-child::after { display: none; }
+.step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%; font-size: .78rem;
+  background: var(--surface2); border: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.step.active .step-num { background: var(--accent); border-color: var(--accent); color: #fff; }
+.step.done .step-num { background: var(--green); border-color: var(--green); color: #fff; }
+
+/* Mapping table */
+.map-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.map-table th { background: var(--surface2); padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); color: var(--muted); }
+.map-table td { padding: 7px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.map-table select { width: 160px; padding: 5px 8px; font-size: .82rem; }
+.sample-val { color: var(--muted); font-size: .8rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Preview table */
+.preview-wrap { overflow-x: auto; max-height: 320px; overflow-y: auto; border-radius: 8px; border: 1px solid var(--border); }
+.preview-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.preview-table th { background: var(--surface2); padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); color: var(--accent2); position: sticky; top: 0; z-index: 1; }
+.preview-table td { padding: 7px 12px; border-bottom: 1px solid var(--border); }
+.preview-table tr:hover td { background: rgba(255,255,255,.02); }
+
+/* Alert */
+.alert { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: .88rem; }
+.alert-error { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3); color: #fca5a5; }
+.alert-success { background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.3); color: #86efac; }
+.alert-info { background: rgba(124,106,247,.1); border: 1px solid rgba(124,106,247,.3); color: var(--accent2); }
+
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: .75rem; font-weight: 600; }
+.badge-green { background: rgba(34,197,94,.15); color: var(--green); }
+.badge-amber { background: rgba(245,158,11,.15); color: var(--amber); }
+.badge-red   { background: rgba(239,68,68,.15);  color: var(--red); }
+
+.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.hidden { display: none !important; }
+.mt12 { margin-top: 12px; }
+.mt20 { margin-top: 20px; }
+.gap12 { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">🤖 Odoo AI Assistant</span>
+  <a href="/" class="back">← Back to Chat</a>
+</header>
+
+<div class="container">
+  <h2>Import BOQ from Tender Document</h2>
+  <p class="sub">Upload an Excel file (.xlsx / .xls) — AI will detect the columns and import BOQ lines into Odoo.</p>
+
+  <!-- Steps indicator -->
+  <div class="steps">
+    <div class="step active" id="step1-ind">
+      <div class="step-num">1</div><br>Upload File
+    </div>
+    <div class="step" id="step2-ind">
+      <div class="step-num">2</div><br>Map Columns
+    </div>
+    <div class="step" id="step3-ind">
+      <div class="step-num">3</div><br>Preview
+    </div>
+    <div class="step" id="step4-ind">
+      <div class="step-num">4</div><br>Import
+    </div>
+  </div>
+
+  <div id="alert-box"></div>
+
+  <!-- ── Step 1: Upload ── -->
+  <div id="step1" class="card">
+    <h3>Step 1 — Upload Excel File</h3>
+
+    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+      <div class="icon">📄</div>
+      <strong>Click to choose file or drag & drop here</strong>
+      <p>Supports .xlsx and .xls — BOQ tender document</p>
+      <div id="file-name"></div>
+    </div>
+    <input type="file" id="file-input" accept=".xlsx,.xls"/>
+
+    <div class="row2 mt12">
+      <div>
+        <label>Project *</label>
+        <select id="project-select">
+          <option value="">Loading projects…</option>
+        </select>
+      </div>
+      <div>
+        <label>Groq API Key (optional — uses server key if blank)</label>
+        <input type="password" id="api-key-input" placeholder="gsk_…"/>
+      </div>
+    </div>
+
+    <div class="mt12">
+      <label>Import into Odoo models:</label>
+      <div class="check-group mt12">
+        <label><input type="checkbox" id="chk-boq-line" checked> project.subcontracting.boq.line</label>
+        <label><input type="checkbox" id="chk-detail-line" checked> project.detailed.item.line</label>
+      </div>
+    </div>
+
+    <div class="mt20">
+      <button class="btn btn-primary" id="btn-parse" disabled onclick="parseFile()">
+        <span id="parse-spinner" class="spinner hidden"></span>Extract BOQ
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Step 2: Column Mapping ── -->
+  <div id="step2" class="card hidden">
+    <h3>Step 2 — Column Mapping  <span id="total-rows-badge" class="badge badge-green"></span></h3>
+    <p style="color:var(--muted);font-size:.85rem;margin-bottom:14px">AI detected the mapping below. Adjust dropdowns if needed, then click Continue.</p>
+    <table class="map-table" id="map-table">
+      <thead><tr><th>#</th><th>Excel Column Header</th><th>Odoo Field</th><th>Sample Value</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="mt20 gap12">
+      <button class="btn btn-primary" onclick="buildPreview()">Continue →</button>
+      <button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="goStep(1)">← Back</button>
+    </div>
+  </div>
+
+  <!-- ── Step 3: Preview ── -->
+  <div id="step3" class="card hidden">
+    <h3>Step 3 — Preview  <span id="preview-count" class="badge badge-amber"></span></h3>
+    <p style="color:var(--muted);font-size:.85rem;margin-bottom:14px">Showing first 20 rows with mapped columns. Rows without a description are skipped.</p>
+    <div class="preview-wrap">
+      <table class="preview-table" id="preview-table">
+        <thead><tr id="preview-head"></tr></thead>
+        <tbody id="preview-body"></tbody>
+      </table>
+    </div>
+    <div class="mt20 gap12">
+      <button class="btn btn-success" id="btn-import" onclick="doImport()">
+        <span id="import-spinner" class="spinner hidden"></span>Import to Odoo
+      </button>
+      <button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="goStep(2)">← Back</button>
+    </div>
+  </div>
+
+  <!-- ── Step 4: Result ── -->
+  <div id="step4" class="card hidden">
+    <h3>Step 4 — Import Complete</h3>
+    <div id="result-box"></div>
+    <div class="mt20 gap12">
+      <button class="btn btn-primary" onclick="location.reload()">Import Another File</button>
+      <a href="/" class="btn" style="background:var(--surface2);color:var(--text);text-decoration:none">← Back to Chat</a>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+const BASE = window.location.pathname.startsWith('/ai') ? '/ai' : '';
+let _headers = [], _rows = [], _colMap = {};
+
+// ── Load projects on startup ──────────────────────────────────────────────────
+async function loadProjects() {
+  try {
+    const r = await fetch(BASE + '/get-projects');
+    const list = await r.json();
+    const sel = document.getElementById('project-select');
+    if (list.error) { sel.innerHTML = '<option value="">Error loading projects</option>'; return; }
+    sel.innerHTML = '<option value="">— Select project —</option>' +
+      list.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  } catch(e) {
+    document.getElementById('project-select').innerHTML = '<option value="">Could not load projects</option>';
+  }
+}
+loadProjects();
+
+// ── File drag & drop ──────────────────────────────────────────────────────────
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f) setFile(f);
+});
+document.getElementById('file-input').addEventListener('change', e => {
+  if (e.target.files[0]) setFile(e.target.files[0]);
+});
+function setFile(f) {
+  document.getElementById('file-input').files; // keep ref
+  document.getElementById('file-name').textContent = '📎 ' + f.name + ' (' + (f.size/1024).toFixed(1) + ' KB)';
+  document.getElementById('btn-parse').disabled = false;
+  // store file on input element
+  const dt = new DataTransfer(); dt.items.add(f);
+  document.getElementById('file-input').files = dt.files;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function showAlert(msg, type='error') {
+  document.getElementById('alert-box').innerHTML =
+    `<div class="alert alert-${type}">${msg}</div>`;
+}
+function clearAlert() { document.getElementById('alert-box').innerHTML = ''; }
+
+function goStep(n) {
+  [1,2,3,4].forEach(i => {
+    document.getElementById('step'+i).classList.toggle('hidden', i !== n);
+    const ind = document.getElementById('step'+i+'-ind');
+    ind.classList.remove('active','done');
+    if (i < n) ind.classList.add('done');
+    else if (i === n) ind.classList.add('active');
+  });
+  clearAlert();
+}
+
+const FIELD_OPTIONS = ['', 'name', 'item_code', 'quantity', 'unit', 'unit_price', 'work_type', 'notes'];
+const FIELD_LABELS  = {
+  '': '— skip —', name: 'name (description)', item_code: 'item_code',
+  quantity: 'quantity', unit: 'unit', unit_price: 'unit_price',
+  work_type: 'work_type', notes: 'notes'
+};
+
+// ── Step 1 → Parse ────────────────────────────────────────────────────────────
+async function parseFile() {
+  const fi = document.getElementById('file-input');
+  if (!fi.files[0]) { showAlert('Please select an Excel file first'); return; }
+  const proj = document.getElementById('project-select').value;
+  if (!proj) { showAlert('Please select a project'); return; }
+
+  const btn = document.getElementById('btn-parse');
+  const sp  = document.getElementById('parse-spinner');
+  btn.disabled = true; sp.classList.remove('hidden');
+  clearAlert();
+
+  const fd = new FormData();
+  fd.append('file', fi.files[0]);
+  fd.append('api_key', document.getElementById('api-key-input').value.trim());
+
+  try {
+    const r = await fetch(BASE + '/parse-boq', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.error) { showAlert(d.error); return; }
+
+    _headers = d.headers;
+    _rows    = d.rows;
+    _colMap  = d.column_map || {};
+
+    document.getElementById('total-rows-badge').textContent = d.total_rows + ' rows detected';
+    buildMappingTable();
+    goStep(2);
+  } catch(e) {
+    showAlert('Upload failed: ' + e.message);
+  } finally {
+    btn.disabled = false; sp.classList.add('hidden');
+  }
+}
+
+// ── Step 2 → Mapping table ───────────────────────────────────────────────────
+function buildMappingTable() {
+  const tbody = document.querySelector('#map-table tbody');
+  tbody.innerHTML = '';
+  _headers.forEach((h, i) => {
+    const detected = _colMap[String(i)] || '';
+    const sample   = _rows.slice(0,3).map(r => r[i] || '').filter(Boolean).join(' / ').substring(0,60);
+    const opts = FIELD_OPTIONS.map(f =>
+      `<option value="${f}" ${f===detected?'selected':''}>${FIELD_LABELS[f]}</option>`).join('');
+    tbody.insertAdjacentHTML('beforeend',
+      `<tr>
+        <td style="color:var(--muted)">${i}</td>
+        <td><strong>${h}</strong></td>
+        <td><select onchange="updateMap(${i},this.value)">${opts}</select></td>
+        <td class="sample-val">${sample}</td>
+       </tr>`);
+  });
+}
+function updateMap(idx, val) {
+  if (val) _colMap[String(idx)] = val;
+  else delete _colMap[String(idx)];
+}
+
+// ── Step 3 → Preview ─────────────────────────────────────────────────────────
+function buildPreview() {
+  const mapped = Object.entries(_colMap).filter(([,v])=>v);
+  if (!mapped.some(([,v])=>v==='name')) {
+    showAlert('You must map at least one column to "name" (description)'); return;
+  }
+  clearAlert();
+
+  // Build preview headers
+  const head = document.getElementById('preview-head');
+  head.innerHTML = mapped.map(([,v])=>`<th>${v}</th>`).join('');
+
+  // Build preview rows (first 20 with non-empty name)
+  const body = document.getElementById('preview-body');
+  body.innerHTML = '';
+  let shown = 0;
+  for (const row of _rows) {
+    const vals = mapped.map(([i])=> row[parseInt(i)] || '');
+    const nameIdx = mapped.findIndex(([,v])=>v==='name');
+    if (!vals[nameIdx]) continue;
+    body.insertAdjacentHTML('beforeend',
+      `<tr>${vals.map(v=>`<td>${v}</td>`).join('')}</tr>`);
+    if (++shown >= 20) break;
+  }
+  document.getElementById('preview-count').textContent = shown + ' of ' + _rows.length + ' rows shown';
+  goStep(3);
+}
+
+// ── Step 4 → Import ───────────────────────────────────────────────────────────
+async function doImport() {
+  const btn = document.getElementById('btn-import');
+  const sp  = document.getElementById('import-spinner');
+  btn.disabled = true; sp.classList.remove('hidden');
+  clearAlert();
+
+  const models = [];
+  if (document.getElementById('chk-boq-line').checked)    models.push('project.subcontracting.boq.line');
+  if (document.getElementById('chk-detail-line').checked) models.push('project.detailed.item.line');
+  if (!models.length) { showAlert('Select at least one target model'); btn.disabled=false; sp.classList.add('hidden'); return; }
+
+  const project_id = parseInt(document.getElementById('project-select').value);
+
+  try {
+    const r = await fetch(BASE + '/import-boq', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows: _rows, column_map: _colMap, project_id, models })
+    });
+    const d = await r.json();
+    if (d.error) { showAlert(d.error); return; }
+
+    let html = `
+      <div class="gap12" style="margin-bottom:16px">
+        <span class="badge badge-green">✓ ${d.imported} rows imported</span>
+        ${d.skipped ? `<span class="badge badge-amber">⟳ ${d.skipped} rows skipped (no description)</span>` : ''}
+        ${d.errors?.length ? `<span class="badge badge-red">✗ ${d.errors.length} errors</span>` : ''}
+      </div>`;
+    if (d.boq_contract_id) {
+      html += `<p style="color:var(--muted);font-size:.88rem">BOQ Contract ID created: <strong style="color:var(--text)">${d.boq_contract_id}</strong></p>`;
+    }
+    if (d.errors?.length) {
+      html += `<div class="alert alert-error mt12"><strong>Errors:</strong><br>${d.errors.join('<br>')}</div>`;
+    }
+    if (d.imported > 0) {
+      html += `<div class="alert alert-success mt12">Successfully imported <strong>${d.imported}</strong> BOQ lines into Odoo. You can now query them in the AI Chat.</div>`;
+    }
+    document.getElementById('result-box').innerHTML = html;
+    goStep(4);
+  } catch(e) {
+    showAlert('Import failed: ' + e.message);
+  } finally {
+    btn.disabled = false; sp.classList.add('hidden');
+  }
+}
+</script>
+</body>
+</html>

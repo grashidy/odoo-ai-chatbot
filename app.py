@@ -1,4 +1,4 @@
-import xmlrpc.client, json, os, time, re, logging, threading
+import xmlrpc.client, json, os, time, re, logging, threading, io
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from groq import Groq
@@ -585,6 +585,208 @@ def reports_data():
         "emp_by_dept":              extract(emp_by_dept,              "department_id"),
         "units_by_state":           extract(units_by_state,           "state"),
     })
+
+# ── BOQ Import ─────────────────────────────────────────────────────────────────
+
+@app.route("/upload-boq")
+@app.route("/ai/upload-boq")
+def upload_boq_page():
+    return render_template("upload_boq.html")
+
+@app.route("/parse-boq", methods=["POST"])
+@app.route("/ai/parse-boq", methods=["POST"])
+def parse_boq():
+    """Read uploaded Excel, extract rows, use AI to suggest column mapping."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    f = request.files["file"]
+    groq_key = request.form.get("api_key", "").strip() or DEFAULT_GROQ_KEY
+
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(f.read()), read_only=True, data_only=True)
+        ws = wb.active
+        raw_rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+    except Exception as e:
+        return jsonify({"error": f"Failed to read Excel file: {e}"}), 400
+
+    if len(raw_rows) < 2:
+        return jsonify({"error": "Excel file is empty or has no data"}), 400
+
+    # Find first row that has at least 3 non-empty cells → use as headers
+    headers = []
+    data_start = 0
+    for i, row in enumerate(raw_rows):
+        non_empty = [c for c in row if c is not None and str(c).strip()]
+        if len(non_empty) >= 3:
+            headers = [str(c).strip() if c is not None else f"Col{j}" for j, c in enumerate(row)]
+            data_start = i + 1
+            break
+
+    if not headers:
+        return jsonify({"error": "Could not detect a header row (need ≥3 non-empty cells)"}), 400
+
+    # Collect up to 300 data rows (skip fully empty rows)
+    data_rows = []
+    for row in raw_rows[data_start: data_start + 300]:
+        values = [str(c).strip() if c is not None else "" for c in row]
+        if any(v for v in values):
+            data_rows.append(values)
+
+    if not data_rows:
+        return jsonify({"error": "No data rows found after the header"}), 400
+
+    # Ask Groq to map column headers → Odoo BOQ field names
+    column_map = {}
+    if groq_key:
+        sample = data_rows[:3]
+        prompt = (
+            "I have an Excel BOQ (Bill of Quantities) tender document.\n"
+            f"Column headers (0-indexed): {list(enumerate(headers))}\n"
+            f"Sample rows: {sample}\n\n"
+            "Map each column INDEX to one of these Odoo field names:\n"
+            "  name        → item description / work item name (required)\n"
+            "  item_code   → item number / reference code\n"
+            "  quantity    → planned/BOQ quantity (numeric)\n"
+            "  unit        → unit of measure (m2, m3, kg, ls, etc)\n"
+            "  unit_price  → unit rate / unit price (numeric)\n"
+            "  work_type   → type of work (supply / install / civil / labor / etc)\n"
+            "  notes       → remarks or notes\n\n"
+            "Return ONLY valid JSON like: {\"0\": \"item_code\", \"1\": \"name\", \"3\": \"quantity\", \"4\": \"unit_price\"}\n"
+            "Skip columns that don't map to any field (totals, subtotals, row numbers)."
+        )
+        try:
+            client_tmp = Groq(api_key=groq_key)
+            resp = client_tmp.chat.completions.create(
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=400, temperature=0,
+            )
+            raw_json = resp.choices[0].message.content.strip()
+            m = re.search(r'\{[^{}]+\}', raw_json, re.DOTALL)
+            if m:
+                column_map = json.loads(m.group())
+        except Exception as e:
+            logging.warning("Groq column mapping failed: %s", e)
+
+    return jsonify({
+        "headers": headers,
+        "rows": data_rows,
+        "column_map": column_map,
+        "total_rows": len(data_rows),
+    })
+
+
+@app.route("/get-projects", methods=["GET"])
+@app.route("/ai/get-projects", methods=["GET"])
+def get_projects():
+    """Return list of projects from Odoo for the project selector."""
+    try:
+        projects = odoo_call("project.project", "search_read", [[]], {"fields": ["id", "name"], "limit": 100, "order": "name asc"})
+        return jsonify(projects)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/import-boq", methods=["POST"])
+@app.route("/ai/import-boq", methods=["POST"])
+def import_boq():
+    """Import mapped BOQ rows into Odoo models."""
+    data       = request.json
+    rows       = data.get("rows", [])
+    column_map = data.get("column_map", {})   # {"col_index_str": "field_name"}
+    project_id = data.get("project_id")
+    models_to_import = data.get("models", ["project.subcontracting.boq.line", "project.detailed.item.line"])
+
+    if not rows:
+        return jsonify({"error": "No rows to import"}), 400
+    if not column_map:
+        return jsonify({"error": "Column mapping is required"}), 400
+    if not project_id:
+        return jsonify({"error": "Project is required"}), 400
+
+    col_map = {int(k): v for k, v in column_map.items()}
+
+    def _to_float(s):
+        try:
+            return float(str(s).replace(",", "").replace(" ", "") or 0)
+        except Exception:
+            return 0.0
+
+    imported = 0
+    skipped  = 0
+    errors   = []
+    boq_contract_id = None
+
+    # Auto-create a BOQ contract to group all imported lines
+    if "project.subcontracting.boq.line" in models_to_import:
+        from datetime import date as _date
+        contract_name = f"Tender Import {_date.today().strftime('%Y-%m-%d')}"
+        try:
+            existing = odoo_call("boq.contract", "search_read",
+                [[["name", "=", contract_name], ["project_id", "=", project_id]]],
+                {"fields": ["id"], "limit": 1})
+            if existing:
+                boq_contract_id = existing[0]["id"]
+            else:
+                boq_contract_id = odoo_call("boq.contract", "create",
+                    [{"name": contract_name, "project_id": project_id}])
+        except Exception as e:
+            return jsonify({"error": f"Could not create BOQ contract: {e}"}), 500
+
+    for i, row in enumerate(rows):
+        try:
+            vals = {}
+            for col_idx, field in col_map.items():
+                if col_idx < len(row) and row[col_idx]:
+                    vals[field] = row[col_idx]
+
+            # Must have at least a name/description
+            if not vals.get("name"):
+                skipped += 1
+                continue
+
+            qty        = _to_float(vals.get("quantity", 0))
+            unit_price = _to_float(vals.get("unit_price", 0))
+
+            if "project.subcontracting.boq.line" in models_to_import:
+                rec = {
+                    "name":             vals["name"],
+                    "project_id":       project_id,
+                    "boq_contract_id":  boq_contract_id,
+                }
+                if qty:        rec["quantity"] = qty
+                if unit_price: rec["boq_cost"]  = unit_price
+                if vals.get("work_type"): rec["work_type"] = vals["work_type"]
+                odoo_call("project.subcontracting.boq.line", "create", [rec])
+
+            if "project.detailed.item.line" in models_to_import:
+                rec2 = {
+                    "name":       vals["name"],
+                    "project_id": project_id,
+                }
+                if qty:        rec2["quantity"]     = qty
+                if unit_price: rec2["initial_cost"] = unit_price
+                if qty and unit_price:
+                    rec2["total_cost"] = qty * unit_price
+                odoo_call("project.detailed.item.line", "create", [rec2])
+
+            imported += 1
+
+        except Exception as e:
+            errors.append(f"Row {i + 1}: {str(e)[:120]}")
+            if len(errors) >= 10:
+                break
+
+    return jsonify({
+        "imported": imported,
+        "skipped":  skipped,
+        "errors":   errors,
+        "boq_contract_id": boq_contract_id,
+    })
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
