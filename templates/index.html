@@ -471,6 +471,33 @@ header {
 .send-btn:disabled { background: var(--card); box-shadow: none; transform: none; cursor: not-allowed; }
 .send-btn svg { width: 20px; height: 20px; }
 
+/* Mic button */
+.mic-btn {
+  width: 50px; height: 50px;
+  background: var(--card); border: 1px solid var(--border2);
+  border-radius: 12px; color: var(--text3);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: all 0.2s;
+}
+.mic-btn:hover { border-color: var(--accent); color: var(--accent); }
+.mic-btn.recording {
+  background: rgba(239,68,68,.15); border-color: #ef4444; color: #ef4444;
+  animation: pulse-mic 1.1s ease-in-out infinite;
+}
+.mic-btn svg { width: 20px; height: 20px; }
+@keyframes pulse-mic {
+  0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.45); }
+  50%      { box-shadow: 0 0 0 9px rgba(239,68,68,0); }
+}
+/* TTS speaker button in header */
+.tts-btn {
+  background: none; border: 1px solid var(--border2); border-radius: 8px;
+  color: var(--text3); cursor: pointer; padding: 6px 10px; font-size: 18px;
+  transition: all .2s;
+}
+.tts-btn.on { border-color: var(--accent); color: var(--accent); }
+.tts-btn:hover { border-color: var(--accent); color: var(--accent); }
+
 /* Toast */
 .toast {
   position: fixed; bottom: 88px; left: 50%; transform: translateX(-50%);
@@ -563,6 +590,8 @@ header {
     </div>
     <button class="hdr-btn tab-btn active" id="tab-chat" onclick="switchTab('chat')">💬 Chat</button>
     <button class="hdr-btn tab-btn" id="tab-reports" onclick="switchTab('reports')">📊 Reports</button>
+    <a href="/upload-boq" class="hdr-btn" style="text-decoration:none">📥 Import BOQ</a>
+    <button class="tts-btn" id="tts-toggle-btn" onclick="toggleTTS()" title="تشغيل/إيقاف قراءة الردود">🔇</button>
     <button class="hdr-btn new" onclick="newChat()">✚ New Chat</button>
     <button class="hdr-btn" onclick="toggleSettings()">⚙ Settings</button>
   </div>
@@ -699,11 +728,27 @@ header {
 <div id="input-area">
   <textarea id="user-input" placeholder="Ask in Arabic or English…" rows="1"
     onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+  <!-- Mic button -->
+  <button class="mic-btn" id="mic-btn" onclick="toggleVoice()" title="اسأل بالصوت / Voice input">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+      <line x1="12" y1="19" x2="12" y2="22"/>
+      <line x1="8" y1="22" x2="16" y2="22"/>
+    </svg>
+  </button>
   <button class="send-btn" id="send-btn" onclick="sendMessage()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
       <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
     </svg>
   </button>
+</div>
+<!-- Voice status bar (shown while recording) -->
+<div id="voice-bar" style="display:none;position:fixed;bottom:90px;left:50%;transform:translateX(-50%);
+  background:rgba(239,68,68,.15);border:1px solid #ef4444;border-radius:10px;
+  padding:8px 20px;font-size:13px;color:#ef4444;z-index:999;text-align:center">
+  🎤 <span id="voice-bar-text">جاري الاستماع… تكلم الآن</span>
+  &nbsp;<button onclick="stopVoice()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:13px;font-weight:600">✕ إيقاف</button>
 </div>
 
 <script>
@@ -1103,6 +1148,8 @@ async function sendMessage() {
             aiBub.innerHTML = html;
             applyCharts(aiBub, charts, fullText);
             scrollBottom();
+            // Speak the response if TTS is enabled
+            _speakText(fullText);
           }
         }
       }
@@ -1267,6 +1314,152 @@ function fmt(v) {
   if (v >= 1_000_000) return (v/1_000_000).toFixed(1) + 'M';
   if (v >= 1_000)     return (v/1_000).toFixed(1) + 'K';
   return Math.round(v).toLocaleString();
+}
+
+// ── Voice Input (Web Speech API) ──────────────────────────────────────────────
+let _recog     = null;
+let _recording = false;
+
+function _buildRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return null;
+  const r = new SR();
+  r.continuous      = false;
+  r.interimResults  = true;
+  r.maxAlternatives = 1;
+  // Detect preferred language: Arabic if page/OS is Arabic, otherwise auto
+  r.lang = (navigator.language || '').startsWith('ar') ? 'ar-SA' : 'ar-SA';
+
+  r.onstart = () => {
+    _recording = true;
+    document.getElementById('mic-btn').classList.add('recording');
+    document.getElementById('voice-bar').style.display = 'block';
+    document.getElementById('voice-bar-text').textContent = 'جاري الاستماع… تكلم الآن / Listening…';
+    document.getElementById('user-input').value = '';
+    document.getElementById('user-input').placeholder = '🎤 …';
+  };
+
+  r.onresult = (e) => {
+    let interim = '', final = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) final += t;
+      else interim += t;
+    }
+    const inp = document.getElementById('user-input');
+    inp.value = final || interim;
+    autoResize(inp);
+    if (final) {
+      document.getElementById('voice-bar-text').textContent = '✓ ' + final;
+    }
+  };
+
+  r.onend = () => {
+    _stopRecordingUI();
+    const val = document.getElementById('user-input').value.trim();
+    if (val && !streaming) {
+      setTimeout(() => sendMessage(), 400);
+    }
+  };
+
+  r.onerror = (e) => {
+    _stopRecordingUI();
+    if (e.error === 'not-allowed') {
+      toast('Microphone permission denied. Please allow mic access in browser settings.');
+    } else if (e.error !== 'no-speech') {
+      toast('Voice error: ' + e.error);
+    }
+  };
+  return r;
+}
+
+function toggleVoice() {
+  if (_recording) { stopVoice(); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    toast('Voice input is not supported. Use Chrome or Edge browser.');
+    return;
+  }
+  if (!_recog) _recog = _buildRecognition();
+  try {
+    _recog.lang = 'ar-SA';   // Arabic by default; user can speak English too
+    _recog.start();
+  } catch(e) {
+    toast('Could not start microphone: ' + e.message);
+  }
+}
+
+function stopVoice() {
+  if (_recog) { try { _recog.stop(); } catch(e) {} }
+  _stopRecordingUI();
+}
+
+function _stopRecordingUI() {
+  _recording = false;
+  const mb = document.getElementById('mic-btn');
+  if (mb) mb.classList.remove('recording');
+  const vb = document.getElementById('voice-bar');
+  if (vb) vb.style.display = 'none';
+  const inp = document.getElementById('user-input');
+  if (inp) inp.placeholder = 'Ask in Arabic or English…';
+}
+
+// ── Text-to-Speech (AI reads the response) ────────────────────────────────────
+let _ttsEnabled = localStorage.getItem('tts_enabled') === 'true';
+// Apply saved state on load
+(function() {
+  const btn = document.getElementById('tts-toggle-btn');
+  if (btn) { btn.textContent = _ttsEnabled ? '🔊' : '🔇'; if (_ttsEnabled) btn.classList.add('on'); }
+})();
+
+function toggleTTS() {
+  _ttsEnabled = !_ttsEnabled;
+  localStorage.setItem('tts_enabled', _ttsEnabled);
+  const btn = document.getElementById('tts-toggle-btn');
+  btn.textContent = _ttsEnabled ? '🔊' : '🔇';
+  btn.classList.toggle('on', _ttsEnabled);
+  toast(_ttsEnabled ? '🔊 Voice response ON' : '🔇 Voice response OFF');
+  if (!_ttsEnabled && window.speechSynthesis) window.speechSynthesis.cancel();
+}
+
+function _speakText(text) {
+  if (!_ttsEnabled || !window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  // Strip markdown, tables, code blocks
+  const clean = text
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/CHART_\w+:\{[^}]+\}/g, '')
+    .replace(/[|─+]/g, '')
+    .replace(/#+\s/g, '')
+    .replace(/\*{1,2}([^*]+)\*{1,2}/g, '$1')
+    .replace(/\n{2,}/g, '. ')
+    .replace(/\n/g, ' ')
+    .trim()
+    .slice(0, 600);
+  if (!clean) return;
+  const u = new SpeechSynthesisUtterance(clean);
+  u.lang  = /[؀-ۿ]/.test(clean) ? 'ar-SA' : 'en-US';
+  u.rate  = 1.05;
+  u.pitch = 1;
+  window.speechSynthesis.speak(u);
+}
+
+// Hook into the existing sendMessage flow: call _speakText when text arrives
+// We patch the ev.type==='text' handler by wrapping the SSE reader.
+// Simpler: intercept at the point fullText is finalized.
+// We add a MutationObserver on the last AI bubble to read it when done.
+function _hookTTSOnBubble(bubble) {
+  if (!_ttsEnabled) return;
+  // Wait for 'done' — bubble will stop changing. Use a short poll.
+  let last = '', stable = 0;
+  const iv = setInterval(() => {
+    const cur = bubble.innerText;
+    if (cur === last) { stable++; } else { stable = 0; last = cur; }
+    if (stable >= 3) {   // text stable for 3 × 300ms = 0.9s
+      clearInterval(iv);
+      _speakText(cur);
+    }
+  }, 300);
 }
 </script>
 </body>
