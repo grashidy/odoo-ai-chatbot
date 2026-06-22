@@ -1,4 +1,4 @@
-import xmlrpc.client, json, os, time, re, logging
+import xmlrpc.client, json, os, time, re, logging, threading
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from groq import Groq
@@ -285,15 +285,37 @@ def chat():
 
             for iteration in range(max_iterations):
                 response = None
+                # Run Groq call in a thread so we can send SSE keepalive pings
+                # while waiting — Railway drops idle connections after ~60 s
+                _result  = [None]
+                _api_err = [None]
+                _done    = threading.Event()
+
+                def _groq_call():
+                    try:
+                        _result[0] = client.chat.completions.create(
+                            model="meta-llama/llama-4-scout-17b-16e-instruct",
+                            messages=messages,
+                            tools=TOOLS,
+                            tool_choice="auto",
+                            max_tokens=4096,
+                            temperature=0.1,
+                        )
+                    except Exception as e:
+                        _api_err[0] = e
+                    finally:
+                        _done.set()
+
+                threading.Thread(target=_groq_call, daemon=True).start()
+                # Ping every 20 s so Railway doesn't kill the idle connection
+                while not _done.wait(timeout=20):
+                    yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+
+                response = _result[0]
+                api_err  = _api_err[0]
                 try:
-                    response = client.chat.completions.create(
-                        model="meta-llama/llama-4-scout-17b-16e-instruct",
-                        messages=messages,
-                        tools=TOOLS,
-                        tool_choice="auto",
-                        max_tokens=4096,
-                        temperature=0.1,
-                    )
+                    if api_err is not None:
+                        raise api_err
                 except Exception as api_err:
                     err_msg = str(api_err)
                     is_rate      = "rate_limit" in err_msg.lower() or "429" in err_msg
@@ -308,7 +330,14 @@ def chat():
                             break
                         else:
                             yield f"data: {json.dumps({'type': 'tool', 'name': 'wait', 'input': {'model': f'Waiting {wait_sec}s for rate limit to reset...'}})}\n\n"
-                            time.sleep(wait_sec)
+                            # Yield pings during wait so Railway doesn't drop the connection
+                            elapsed = 0
+                            while elapsed < wait_sec:
+                                chunk = min(20, wait_sec - elapsed)
+                                time.sleep(chunk)
+                                elapsed += chunk
+                                if elapsed < wait_sec:
+                                    yield f"data: {json.dumps({'type': 'ping'})}\n\n"
                             continue  # retry this iteration
                     elif is_tool_fail:
                         tool_fail_count += 1
@@ -392,21 +421,27 @@ def chat():
                     })
 
                 if loop_detected:
-                    # Force one final answer call with no more tools
                     messages.append({
                         "role": "user",
                         "content": "You have enough data. Stop calling tools and give the final answer now."
                     })
-                    try:
-                        final = client.chat.completions.create(
-                            model="meta-llama/llama-4-scout-17b-16e-instruct",
-                            messages=messages,
-                            max_tokens=2048,
-                            temperature=0.1,
-                        )
-                        text = final.choices[0].message.content or "No response."
-                    except Exception:
-                        text = "Unable to generate final response."
+                    _fr = [None]; _fe = threading.Event()
+                    def _final_call():
+                        try:
+                            _fr[0] = client.chat.completions.create(
+                                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                                messages=messages,
+                                max_tokens=2048,
+                                temperature=0.1,
+                            )
+                        except Exception:
+                            pass
+                        finally:
+                            _fe.set()
+                    threading.Thread(target=_final_call, daemon=True).start()
+                    while not _fe.wait(timeout=20):
+                        yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+                    text = (_fr[0].choices[0].message.content if _fr[0] else None) or "Unable to generate final response."
                     yield f"data: {json.dumps({'type': 'text', 'text': text})}\n\n"
                     answered = True
                     break
