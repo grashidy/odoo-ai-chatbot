@@ -1,7 +1,11 @@
-import xmlrpc.client, json, os, time, re, logging, threading, io
+import xmlrpc.client, json, os, time, re, logging, threading, io, base64
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from groq import Groq
+try:
+    import requests as _requests
+except ImportError:
+    _requests = None
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -786,6 +790,146 @@ def import_boq():
         "errors":   errors,
         "boq_contract_id": boq_contract_id,
     })
+
+
+# ── WhatsApp (Twilio Sandbox) ──────────────────────────────────────────────────
+
+def _twilio_send(to_number, body):
+    """Send a WhatsApp message via Twilio REST API."""
+    sid   = os.environ.get("TWILIO_ACCOUNT_SID", "")
+    token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    from_ = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
+    if not sid or not token:
+        logging.warning("Twilio credentials not set — cannot send WhatsApp reply")
+        return
+    if not _requests:
+        logging.warning("requests library not installed")
+        return
+    auth = base64.b64encode(f"{sid}:{token}".encode()).decode()
+    url  = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
+    try:
+        _requests.post(url,
+            headers={"Authorization": f"Basic {auth}"},
+            data={"From": from_, "To": to_number, "Body": body},
+            timeout=10)
+    except Exception as e:
+        logging.error("Twilio send error: %s", e)
+
+
+def _md_to_whatsapp(text):
+    """Convert markdown to WhatsApp-compatible formatting."""
+    # **bold** → *bold*
+    text = re.sub(r'\*\*(.+?)\*\*', r'*\1*', text)
+    # # Heading → *Heading*
+    text = re.sub(r'^#{1,4}\s+(.+)$', r'*\1*', text, flags=re.MULTILINE)
+    # Remove code fences
+    text = re.sub(r'```[^`]*```', '', text, flags=re.DOTALL)
+    # Strip chart data lines
+    text = re.sub(r'CHART_\w+:\{[^\n]+\}', '', text)
+    # Collapse excess blank lines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
+def _split_whatsapp(text, max_len=4000):
+    """Split message at paragraph boundaries so each chunk ≤ max_len chars."""
+    if len(text) <= max_len:
+        return [text]
+    chunks = []
+    while len(text) > max_len:
+        pos = text.rfind('\n\n', 0, max_len)
+        if pos == -1:
+            pos = text.rfind('\n', 0, max_len)
+        if pos == -1:
+            pos = max_len
+        chunks.append(text[:pos].strip())
+        text = text[pos:].strip()
+    if text:
+        chunks.append(text)
+    return chunks
+
+
+def _run_ai_sync(user_text):
+    """Run the full AI + Odoo tool-call loop synchronously. Returns answer text."""
+    groq_key = DEFAULT_GROQ_KEY
+    if not groq_key:
+        return "❌ Groq API key not configured on the server."
+
+    client  = Groq(api_key=groq_key)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user",   "content": user_text},
+    ]
+
+    for _ in range(5):
+        try:
+            resp = client.chat.completions.create(
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                messages=messages,
+                tools=TOOLS,
+                tool_choice="auto",
+                max_tokens=2048,
+                temperature=0.1,
+            )
+        except Exception as e:
+            return f"❌ AI error: {str(e)[:200]}"
+
+        msg    = resp.choices[0].message
+        finish = resp.choices[0].finish_reason
+
+        asst: dict = {"role": "assistant", "content": msg.content or ""}
+        if msg.tool_calls:
+            asst["tool_calls"] = [
+                {"id": tc.id, "type": "function",
+                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in msg.tool_calls
+            ]
+        messages.append(asst)
+
+        if finish in ("stop", "end_turn") or not msg.tool_calls:
+            return msg.content or "لم أستطع الإجابة على هذا السؤال."
+
+        for tc in msg.tool_calls:
+            try:
+                args = json.loads(tc.function.arguments)
+            except Exception:
+                args = {}
+            result = run_tool(tc.function.name, args)
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+
+    return "لم أتمكن من إكمال الطلب. يرجى إعادة الصياغة."
+
+
+def _handle_whatsapp(from_number, user_text):
+    """Background worker: run AI query then send WhatsApp reply."""
+    logging.info("WhatsApp from %s: %s", from_number, user_text[:80])
+    try:
+        answer = _run_ai_sync(user_text)
+        formatted = _md_to_whatsapp(answer)
+        for chunk in _split_whatsapp(formatted):
+            _twilio_send(from_number, chunk)
+    except Exception as e:
+        _twilio_send(from_number, f"❌ خطأ: {str(e)[:200]}")
+
+
+@app.route("/whatsapp", methods=["POST"])
+@app.route("/ai/whatsapp", methods=["POST"])
+def whatsapp_webhook():
+    """Twilio WhatsApp webhook. Returns 200 immediately; replies asynchronously."""
+    from_number = request.form.get("From", "").strip()
+    body        = request.form.get("Body", "").strip()
+
+    if from_number and body:
+        # Send acknowledgement so user knows we received the message
+        threading.Thread(
+            target=_handle_whatsapp,
+            args=(from_number, body),
+            daemon=True
+        ).start()
+
+    # Must return 200 + empty TwiML quickly (Twilio 15 s timeout)
+    return ('<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+            200, {"Content-Type": "text/xml"})
 
 
 if __name__ == "__main__":
