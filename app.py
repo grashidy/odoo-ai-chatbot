@@ -34,11 +34,11 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "model":  {"type": "string", "description": "Odoo model. E.g. rs.unit, rs.project, hr.employee, rs.contract, rs.installment, purchase.order, construction.advance.payment"},
+                    "model":  {"type": "string", "description": "Odoo model. E.g. project.subcontracting.boq.line, boq.contract, construction.advance.payment, project.detailed.item.line, purchase.order, hr.employee"},
                     "domain": {"anyOf": [{"type": "string"}, {"type": "array"}], "description": "Filter domain. Use [] for all records. E.g. [[\"state\",\"=\",\"sale\"]]"},
-                    "fields": {"type": "array", "items": {"type": "string"}, "description": "List of field names to return. E.g. [\"name\",\"state\",\"rs_project_id\"]"},
+                    "fields": {"type": "array", "items": {"type": "string"}, "description": "List of field names to return. E.g. [\"name\",\"state\",\"project_id\"]"},
                     "limit":  {"type": "integer", "description": "Max rows (default 50, max 200)"},
-                    "order":  {"type": "string",  "description": "Sort. E.g. 'current_sale_price desc'"}
+                    "order":  {"type": "string",  "description": "Sort. E.g. 'boq_cost desc'"}
                 },
                 "required": ["model", "domain", "fields"]
             }
@@ -77,21 +77,25 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "odoo_read_group",
-            "description": "Group & count Odoo records. Use for 'how many X per Y' statistics and charts.",
+            "description": "Group & aggregate Odoo records. Use for 'how many X per Y' or totals. Count is returned automatically as 'count' — never include 'id:count' in aggregates.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "model": {"type": "string", "description": "Odoo model name."},
                     "domain": {"anyOf": [{"type": "string"}, {"type": "array"}], "description": "Filter domain. Use [] for all records. E.g. [[\"state\",\"=\",\"draft\"]]"},
                     "groupby": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Fields to group by. E.g. [\"rs_project_id\"] or [\"state\"] or [\"department_id\"]."
+                        "anyOf": [
+                            {"type": "array", "items": {"type": "string"}},
+                            {"type": "string"}
+                        ],
+                        "description": "Fields to group by. E.g. [\"project_id\"] or [\"state\"] or [\"partner_id\"]."
                     },
                     "aggregates": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Optional: numeric fields to sum. E.g. [\"net_area:sum\",\"current_sale_price:sum\"]. Use [] if none."
+                        "anyOf": [
+                            {"type": "array", "items": {"type": "string"}},
+                            {"type": "string"}
+                        ],
+                        "description": "Numeric fields to sum. E.g. [\"boq_cost:sum\",\"quantity:sum\"]. Use [] if only need count. NEVER include 'id:count' — count is automatic."
                     }
                 },
                 "required": ["model", "domain", "groupby"]
@@ -132,7 +136,7 @@ def _coerce_list(raw):
                 return [parsed]
         except Exception:
             pass
-        # bare single field name like "rs_project_id"
+        # bare single field name like "project_id"
         return [raw] if raw else []
     return []
 
@@ -169,9 +173,11 @@ def run_tool(name, args):
             return json.dumps(simple, ensure_ascii=False)
 
         elif name == "odoo_read_group":
-            domain  = _coerce_domain(args.get("domain", []))
-            groupby = _coerce_list(args.get("groupby", []))
-            agg_fields  = _coerce_list(args.get("aggregates", []))
+            domain     = _coerce_domain(args.get("domain", []))
+            groupby    = _coerce_list(args.get("groupby", []))
+            agg_fields = _coerce_list(args.get("aggregates", []))
+            # Strip invalid aggregates — Odoo count is automatic (__count), never pass id:count
+            agg_fields = [f for f in agg_fields if f not in ("id:count", "id", "__count")]
             fields_list = list(groupby) + list(agg_fields)
             result = odoo_call(
                 args["model"], "read_group",
@@ -195,36 +201,50 @@ def run_tool(name, args):
         return json.dumps({"error": str(e), "hint": "Try odoo_get_fields to check available fields"})
 
 # ── System prompt ──────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are an AI assistant for a real estate & construction company on Odoo 18.
+SYSTEM_PROMPT = """You are an AI assistant for a construction company using Odoo 18.
 Reply in same language as user (Arabic or English).
 
 RULES:
 - Use tools for real data. Never guess numbers.
-- Each tool call at most ONCE. No repeating same tool.
-- Counts/stats: odoo_read_group. Records: odoo_search (limit 50).
+- Each tool call at most ONCE per tool. No repeating same tool.
+- Counts/stats/totals: use odoo_read_group. Records/lists: use odoo_search (limit 50).
 - Format numbers with commas. Prices in EGP. Use markdown tables.
 - On field error: call odoo_get_fields once to check fields, then retry.
-- You HAVE full access to all models listed below. Never say you lack access — just call odoo_search.
+- You HAVE full access to all models listed below. Never say you lack access — just call the tool.
 
 CHARTS (include when showing statistics):
 CHART_BAR:{"title":"T","labels":["A","B"],"data":[10,20]}
 CHART_PIE:{"title":"T","labels":["A","B"],"data":[10,20]}
 
-MODELS (you can query all of these):
-Real Estate: rs.project, rs.unit(unit_code,state,rs_project_id,net_area,current_sale_price,partner_id), rs.contract(partner_id,rs_unit_id,state,contracted_sale_price), rs.installment(partner_id,amount,date,state), rs.rsrvrq, rs.eoi
-Construction BOQ: boq.contract(partner_id,project_id), project.subcontracting.boq.line(name,boq_contract_id,project_id,product_id,quantity,billed_qty,remain_qty,boq_cost,work_type), project.detailed.item.line(name,project_id,quantity,done_qty,initial_cost,actual_cost,total_cost,progress_percentage)
-Payments: construction.advance.payment(name,partner_id,amount,date,state,project_id,due_amount,settled_amount,subcontractor_contract_id)
-Purchases: purchase.order(name,partner_id,state,amount_total,date_order,project_id), purchase.order.line(order_id,product_id,product_qty,price_unit,price_subtotal)
-Tasks: project.task(name,project_id,stage_id,date_deadline,kanban_state,user_ids), project.project(name,user_id)
-HR: hr.employee(name,department_id,job_title,work_phone,mobile_phone), hr.department(name,manager_id)
-Other: res.partner(name,phone,mobile,email)
+CONSTRUCTION MODELS (primary focus — use these for all construction/BOQ/subcontractor questions):
+BOQ Contracts:    boq.contract(name,partner_id,project_id,state)
+BOQ Lines:        project.subcontracting.boq.line(name,boq_contract_id,project_id,product_id,quantity,billed_qty,remain_qty,boq_cost,work_type)
+Detailed Items:   project.detailed.item.line(name,project_id,quantity,done_qty,initial_cost,actual_cost,total_cost,progress_percentage)
+Advance Payments: construction.advance.payment(name,partner_id,amount,date,state,project_id,due_amount,settled_amount,subcontractor_contract_id)
+Projects:         project.project(name,user_id)
+Tasks:            project.task(name,project_id,stage_id,date_deadline,kanban_state,user_ids)
+Purchases:        purchase.order(name,partner_id,state,amount_total,date_order,project_id)
+Purchase Lines:   purchase.order.line(order_id,product_id,product_qty,price_unit,price_subtotal)
+Partners:         res.partner(name,phone,mobile,email)
+HR:               hr.employee(name,department_id,job_title,work_phone,mobile_phone), hr.department(name,manager_id)
 
-BOQ EXAMPLES — always query like this:
-- List BOQ lines: odoo_search model="project.subcontracting.boq.line" domain=[] fields=["name","project_id","quantity","billed_qty","remain_qty","boq_cost"]
-- Group by project: odoo_read_group model="project.subcontracting.boq.line" domain=[] groupby=["project_id"] aggregates=["boq_cost:sum","quantity:sum"]
+REAL ESTATE MODELS (only use when user explicitly asks about real estate/عقارات):
+rs.project, rs.unit(unit_code,state,rs_project_id,net_area,current_sale_price,partner_id)
+rs.contract(partner_id,rs_unit_id,state,contracted_sale_price), rs.installment(partner_id,amount,date,state)
 
-FIELD-TO-FIELD COMPARISONS: Odoo domain CANNOT compare two fields. For billed_qty > quantity queries: use odoo_search domain=[] fields=["name","project_id","quantity","billed_qty"] limit=200, then filter from returned data. Never put a field name as the domain value.
-Use odoo_search not odoo_read_group for field comparisons."""
+CONSTRUCTION QUERY EXAMPLES:
+- List BOQ lines:         odoo_search model="project.subcontracting.boq.line" domain=[] fields=["name","project_id","quantity","billed_qty","remain_qty","boq_cost"]
+- Count BOQ per project:  odoo_read_group model="project.subcontracting.boq.line" domain=[] groupby=["project_id"] aggregates=["boq_cost:sum","quantity:sum"]
+- Count BOQ contracts:    odoo_count model="boq.contract" domain=[]
+- List BOQ contracts:     odoo_search model="boq.contract" domain=[] fields=["name","partner_id","project_id","state"]
+- Advance payments:       odoo_search model="construction.advance.payment" domain=[] fields=["name","partner_id","amount","state","project_id","due_amount","settled_amount"]
+- Payments per project:   odoo_read_group model="construction.advance.payment" domain=[] groupby=["project_id"] aggregates=["amount:sum","due_amount:sum"]
+- Payments per state:     odoo_read_group model="construction.advance.payment" domain=[] groupby=["state"] aggregates=[]
+- Progress per project:   odoo_read_group model="project.detailed.item.line" domain=[] groupby=["project_id"] aggregates=["total_cost:sum","actual_cost:sum"]
+
+COUNTING: Use odoo_read_group with aggregates=[] to get count per group. Count is returned as 'count' field automatically — never add 'id:count' to aggregates.
+
+FIELD-TO-FIELD COMPARISONS: Odoo domain CANNOT compare two fields. For queries like billed_qty > quantity: use odoo_search with domain=[] fields=["name","project_id","quantity","billed_qty"] limit=200, then filter from returned data. Never use a field name as the domain value."""
 
 # ── Flask app ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -258,7 +278,7 @@ def chat():
             for m in recent:
                 messages.append({"role": m["role"], "content": m.get("content") or ""})
 
-            max_iterations  = 5
+            max_iterations   = 5
             tool_call_counts = {}   # tool_name → how many times called total
             tool_fail_count  = 0   # consecutive schema-validation failures
             answered         = False
@@ -287,7 +307,6 @@ def chat():
                             answered = True
                             break
                         else:
-                            # Auto-wait and retry — don't make user do it manually
                             yield f"data: {json.dumps({'type': 'tool', 'name': 'wait', 'input': {'model': f'Waiting {wait_sec}s for rate limit to reset...'}})}\n\n"
                             time.sleep(wait_sec)
                             continue  # retry this iteration
@@ -295,17 +314,17 @@ def chat():
                         tool_fail_count += 1
                         logging.warning("tool_use_failed #%d: %s", tool_fail_count, err_msg[:400])
                         if tool_fail_count >= 2:
-                            # Give up after 2 consecutive schema failures — tell user
                             yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ The AI model repeatedly sent invalid tool parameters. Please rephrase your question or try again.'})}\n\n"
                             answered = True
                             break
-                        # Inject correction and retry
+                        # Inject correction hint with correct type guidance and retry
                         schema_hint = (
                             "Your last tool call was rejected because a parameter had the wrong type. "
-                            "ALL array-like parameters (fields, domain, groupby, aggregates) MUST be sent "
-                            "as a plain JSON string, NOT as an actual array. "
-                            "Correct: fields='[\"name\",\"state\"]'  Wrong: fields=[\"name\",\"state\"]. "
-                            "Retry now with all parameters as strings."
+                            "Fix the types and retry: "
+                            "fields must be a JSON array like [\"name\",\"state\"]; "
+                            "domain must be a JSON array like [] or [[\"state\",\"=\",\"draft\"]]; "
+                            "groupby must be a JSON array like [\"project_id\"]; "
+                            "aggregates must be a JSON array like [\"boq_cost:sum\"] or []."
                         )
                         messages.append({"role": "user", "content": schema_hint})
                         continue
@@ -417,25 +436,31 @@ def reports_data():
         except Exception as e:
             return {"error": str(e)}
 
-    # Real Estate: units by state
-    units_by_state = safe("rs.unit", "read_group", [[], ["state"], ["state"]], {"lazy": False})
-    # Real Estate: units by project
-    units_by_project = safe("rs.unit", "read_group", [[], ["rs_project_id"], ["rs_project_id"]], {"lazy": False})
-    # Real Estate: installments by state
-    install_by_state = safe("rs.installment", "read_group", [[], ["state"], ["state"]], {"lazy": False})
-    # HR: employees by department
-    emp_by_dept = safe("hr.employee", "read_group", [[], ["department_id"], ["department_id"]], {"lazy": False})
+    # Construction: BOQ lines by project
+    boq_by_project = safe("project.subcontracting.boq.line", "read_group",
+        [[], ["project_id", "boq_cost:sum", "quantity:sum"], ["project_id"]], {"lazy": False})
+    # Construction: BOQ contracts by project
+    boq_contracts_by_project = safe("boq.contract", "read_group",
+        [[], ["project_id"], ["project_id"]], {"lazy": False})
+    # Construction: advance payments by state
+    adv_by_state = safe("construction.advance.payment", "read_group",
+        [[], ["state"], ["state"]], {"lazy": False})
+    # Construction: advance payments by project
+    adv_by_project = safe("construction.advance.payment", "read_group",
+        [[], ["project_id", "amount:sum", "due_amount:sum"], ["project_id"]], {"lazy": False})
+    # Construction: detailed items progress by project
+    items_by_project = safe("project.detailed.item.line", "read_group",
+        [[], ["project_id", "total_cost:sum", "actual_cost:sum"], ["project_id"]], {"lazy": False})
     # Purchases: top 10 vendors by total
     po_by_vendor = safe("purchase.order", "read_group",
         [[["state", "in", ["purchase", "done"]]], ["partner_id", "amount_total:sum"], ["partner_id"]],
         {"lazy": False, "limit": 10, "orderby": "amount_total desc"})
-    # Advance payments summary
-    adv_by_state = safe("construction.advance.payment", "read_group", [[], ["state"], ["state"]], {"lazy": False})
-    # Advance payments by project
-    adv_by_project = safe("construction.advance.payment", "read_group",
-        [[], ["project_id", "amount:sum"], ["project_id"]], {"lazy": False})
-    # BOQ contracts count by project
-    boq_by_project = safe("boq.contract", "read_group", [[], ["project_id"], ["project_id"]], {"lazy": False})
+    # HR: employees by department
+    emp_by_dept = safe("hr.employee", "read_group",
+        [[], ["department_id"], ["department_id"]], {"lazy": False})
+    # Real Estate: units by state (secondary)
+    units_by_state = safe("rs.unit", "read_group",
+        [[], ["state"], ["state"]], {"lazy": False})
 
     def extract(rows, label_field, count_field="__count", amount_field=None):
         if isinstance(rows, dict) and "error" in rows:
@@ -454,14 +479,14 @@ def reports_data():
         return out
 
     return jsonify({
-        "units_by_state":    extract(units_by_state,    "state"),
-        "units_by_project":  extract(units_by_project,  "rs_project_id"),
-        "install_by_state":  extract(install_by_state,  "state"),
-        "emp_by_dept":       extract(emp_by_dept,       "department_id"),
-        "po_by_vendor":      extract(po_by_vendor,      "partner_id", amount_field="amount_total"),
-        "adv_by_state":      extract(adv_by_state,      "state"),
-        "adv_by_project":    extract(adv_by_project,    "project_id", amount_field="amount"),
-        "boq_by_project":    extract(boq_by_project,    "project_id"),
+        "boq_by_project":           extract(boq_by_project,           "project_id", amount_field="boq_cost"),
+        "boq_contracts_by_project": extract(boq_contracts_by_project, "project_id"),
+        "adv_by_state":             extract(adv_by_state,             "state"),
+        "adv_by_project":           extract(adv_by_project,           "project_id", amount_field="amount"),
+        "items_by_project":         extract(items_by_project,         "project_id", amount_field="total_cost"),
+        "po_by_vendor":             extract(po_by_vendor,             "partner_id",  amount_field="amount_total"),
+        "emp_by_dept":              extract(emp_by_dept,              "department_id"),
+        "units_by_state":           extract(units_by_state,           "state"),
     })
 
 if __name__ == "__main__":
