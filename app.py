@@ -281,10 +281,15 @@ rs.contract(partner_id,rs_unit_id,state,contracted_sale_price), rs.installment(p
 ═══════════════════════════════════════════════
 QUERY EXAMPLES:
 ═══════════════════════════════════════════════
-Contract value per project:
+Unique subcontractors per project (no duplicates):
+  odoo_read_group model="subcontractor.contract" domain=[] groupby=["project_id","partner_id"] aggregates=["bills_amount_total:sum","bills_amount_due:sum","total_adv_amount:sum"]
+  → Use this for "اسماء المقاولين / who are the contractors / list contractors per project"
+  → groupby TWO fields collapses multiple contracts per subcontractor into one row
+
+Contract value per project (total only):
   odoo_read_group model="subcontractor.contract" domain=[] groupby=["project_id"] aggregates=["bills_amount_total:sum","bills_amount_due:sum"]
 
-List subcontractor contracts:
+List all contracts (flat, may have duplicates per subcontractor):
   odoo_search model="subcontractor.contract" domain=[] fields=["name","partner_id","project_id","status","bills_amount_total","bills_amount_due","total_adv_amount"]
 
 Contract lines (بنود العقد):
