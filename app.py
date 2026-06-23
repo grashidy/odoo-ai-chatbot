@@ -900,6 +900,48 @@ def _run_ai_sync(user_text):
     return "لم أتمكن من إكمال الطلب. يرجى إعادة الصياغة."
 
 
+def _transcribe_voice(media_url):
+    """Download voice note from Twilio and transcribe with Groq Whisper."""
+    groq_key = DEFAULT_GROQ_KEY
+    if not groq_key or not _requests:
+        return None
+
+    sid   = os.environ.get("TWILIO_ACCOUNT_SID", "")
+    token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+
+    # Download audio (Twilio requires auth to access media URLs)
+    auth = base64.b64encode(f"{sid}:{token}".encode()).decode()
+    resp = _requests.get(media_url,
+                         headers={"Authorization": f"Basic {auth}"},
+                         timeout=30)
+    if resp.status_code != 200:
+        logging.warning("Failed to download voice note: %s", resp.status_code)
+        return None
+
+    audio_bytes = resp.content
+    content_type = resp.headers.get("Content-Type", "audio/ogg")
+    # Derive a file extension from content type
+    ext = "ogg"
+    if "mpeg" in content_type or "mp3" in content_type:
+        ext = "mp3"
+    elif "mp4" in content_type or "m4a" in content_type:
+        ext = "mp4"
+    elif "wav" in content_type:
+        ext = "wav"
+
+    try:
+        client_tmp = Groq(api_key=groq_key)
+        transcript = client_tmp.audio.transcriptions.create(
+            model="whisper-large-v3-turbo",
+            file=(f"voice.{ext}", audio_bytes),
+            response_format="text",
+        )
+        return str(transcript).strip()
+    except Exception as e:
+        logging.error("Whisper transcription failed: %s", e)
+        return None
+
+
 def _handle_whatsapp(from_number, user_text):
     """Background worker: run AI query then send WhatsApp reply."""
     logging.info("WhatsApp from %s: %s", from_number, user_text[:80])
@@ -916,11 +958,37 @@ def _handle_whatsapp(from_number, user_text):
 @app.route("/ai/whatsapp", methods=["POST"])
 def whatsapp_webhook():
     """Twilio WhatsApp webhook. Returns 200 immediately; replies asynchronously."""
-    from_number = request.form.get("From", "").strip()
-    body        = request.form.get("Body", "").strip()
+    from_number  = request.form.get("From", "").strip()
+    body         = request.form.get("Body", "").strip()
+    num_media    = int(request.form.get("NumMedia", "0") or "0")
+    media_url    = request.form.get("MediaUrl0", "").strip()
+    media_type   = request.form.get("MediaContentType0", "").strip()
 
-    if from_number and body:
-        # Send acknowledgement so user knows we received the message
+    if not from_number:
+        return ('<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+                200, {"Content-Type": "text/xml"})
+
+    # ── Voice note ────────────────────────────────────────────────────────────
+    if num_media > 0 and media_url and "audio" in media_type:
+        def _handle_voice():
+            try:
+                _twilio_send(from_number, "🎤 جاري تفريغ الصوت وتحليل سؤالك…")
+                transcript = _transcribe_voice(media_url)
+                if not transcript:
+                    _twilio_send(from_number, "❌ لم أتمكن من تفريغ الرسالة الصوتية. حاول مرة أخرى.")
+                    return
+                # Echo transcript so user knows what was understood
+                _twilio_send(from_number, f"🎙️ فهمت: {transcript}")
+                # Run AI query on the transcript
+                answer = _run_ai_sync(transcript)
+                for chunk in _split_whatsapp(_md_to_whatsapp(answer)):
+                    _twilio_send(from_number, chunk)
+            except Exception as e:
+                _twilio_send(from_number, f"❌ خطأ: {str(e)[:200]}")
+        threading.Thread(target=_handle_voice, daemon=True).start()
+
+    # ── Text message ──────────────────────────────────────────────────────────
+    elif body:
         threading.Thread(
             target=_handle_whatsapp,
             args=(from_number, body),
