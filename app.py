@@ -184,8 +184,8 @@ def run_tool(name, args):
             domain     = _coerce_domain(args.get("domain", []))
             groupby    = _coerce_list(args.get("groupby", []))
             agg_fields = _coerce_list(args.get("aggregates", []))
-            # Strip invalid aggregates — Odoo count is automatic (__count), never pass id:count
-            agg_fields = [f for f in agg_fields if f not in ("id:count", "id", "__count")]
+            # Strip invalid aggregates — Odoo count is automatic (__count), never pass id:count or bare 'count'
+            agg_fields = [f for f in agg_fields if f not in ("id:count", "id", "__count", "count")]
             fields_list = list(groupby) + list(agg_fields)
             result = odoo_call(
                 args["model"], "read_group",
@@ -234,6 +234,10 @@ CHART_PIE:{"title":"T","labels":["A","B"],"data":[10,20]}
 ═══════════════════════════════════════════════
 MODEL ROUTING — always pick the correct model:
 ═══════════════════════════════════════════════
+"advance payments / مدفوعات مقدمة / دفعات مقدمة / مقدمات للمقاولين"
+  → construction.advance.payment  (has name, partner_id, amount, date, state, project_id, due_amount, settled_amount)
+  → NEVER use subcontractor.contract for advance payment queries
+
 "contract value / قيمة العقود / عقود المقاولين"
   → subcontractor.contract  (has bills_amount_total, bills_amount_due)
   → NEVER use boq.contract for financial/value questions
