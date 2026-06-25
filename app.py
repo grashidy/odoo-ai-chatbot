@@ -19,10 +19,10 @@ DEFAULT_GROQ_KEY = (
 # ── Odoo connection ────────────────────────────────────────────────────────────
 # Set these as environment variables in Railway (Variables tab).
 # Hardcoded values are fallbacks for local development only.
-ODOO_URL     = os.environ.get("ODOO_URL",     "https://t2-18.odooegypt.com").rstrip("/")
-ODOO_DB      = os.environ.get("ODOO_DB",      "team2_beta_empty")
+ODOO_URL     = os.environ.get("ODOO_URL",     "https://parameter-sensuous-strained.ngrok-free.dev").rstrip("/")
+ODOO_DB      = os.environ.get("ODOO_DB",      "odoo_18")
 ODOO_UID     = int(os.environ.get("ODOO_UID", "2"))
-ODOO_API_KEY = os.environ.get("ODOO_API_KEY", "ab0ae5ad6e2623ca1acd5892e0a07c6a2add8695")
+ODOO_API_KEY = os.environ.get("ODOO_API_KEY", "49b053d89bb61ce99d95a8a42996c0ebf562")
 
 logging.info("Odoo: %s  db=%s  uid=%d", ODOO_URL, ODOO_DB, ODOO_UID)
 
