@@ -392,7 +392,7 @@ def chat():
                 def _groq_call():
                     try:
                         _result[0] = client.chat.completions.create(
-                            model="llama3-70b-8192",
+                            model="llama-3.3-70b-versatile",
                             messages=messages,
                             tools=TOOLS,
                             tool_choice="auto",
