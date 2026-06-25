@@ -297,8 +297,26 @@ rs.project, rs.unit(unit_code,state,rs_project_id,net_area,current_sale_price,pa
 rs.contract(partner_id,rs_unit_id,state,contracted_sale_price), rs.installment(partner_id,amount,date,state)
 
 ═══════════════════════════════════════════════
+ARABIC → MODEL MAPPING (CRITICAL):
+═══════════════════════════════════════════════
+"مدفوعات مقدمة / دفعات مقدمة / مقدمات للمقاولين / advance payment"
+  → ALWAYS use: construction.advance.payment
+  → fields: name, partner_id, amount, date, state, project_id, due_amount, settled_amount
+
+"عقود / قيمة العقود / عقد مقاول / subcontractor contract"
+  → ALWAYS use: subcontractor.contract
+  → fields: name, partner_id, project_id, status, bills_amount_total, bills_amount_due, total_adv_amount
+
+"موظفين / employees" → hr.employee
+"مشاريع / projects" → project.project
+"بنود المقايسة / BOQ" → project.subcontracting.boq.line
+
+═══════════════════════════════════════════════
 QUERY EXAMPLES:
 ═══════════════════════════════════════════════
+"اعرض المدفوعات المقدمة للمقاولين" / "show advance payments":
+  odoo_search model="construction.advance.payment" domain=[] fields=["name","partner_id","amount","date","state","project_id","due_amount","settled_amount"]
+
 Unique subcontractors per project (no duplicates):
   odoo_read_group model="subcontractor.contract" domain=[] groupby=["project_id","partner_id"] aggregates=["bills_amount_total:sum","bills_amount_due:sum","total_adv_amount:sum"]
   → Use this for "اسماء المقاولين / who are the contractors / list contractors per project"
