@@ -17,10 +17,14 @@ DEFAULT_GROQ_KEY = (
 )
 
 # ── Odoo connection ────────────────────────────────────────────────────────────
-ODOO_URL     = "https://t2-18.odooegypt.com"
-ODOO_DB      = "team2_beta_empty"
-ODOO_UID     = 2
-ODOO_API_KEY = "ab0ae5ad6e2623ca1acd5892e0a07c6a2add8695"
+# Set these as environment variables in Railway (Variables tab).
+# Hardcoded values are fallbacks for local development only.
+ODOO_URL     = os.environ.get("ODOO_URL",     "https://t2-18.odooegypt.com").rstrip("/")
+ODOO_DB      = os.environ.get("ODOO_DB",      "team2_beta_empty")
+ODOO_UID     = int(os.environ.get("ODOO_UID", "2"))
+ODOO_API_KEY = os.environ.get("ODOO_API_KEY", "ab0ae5ad6e2623ca1acd5892e0a07c6a2add8695")
+
+logging.info("Odoo: %s  db=%s  uid=%d", ODOO_URL, ODOO_DB, ODOO_UID)
 
 _odoo = xmlrpc.client.ServerProxy(ODOO_URL + "/xmlrpc/2/object")
 
@@ -202,7 +206,13 @@ def run_tool(name, args):
             return json.dumps(cleaned, ensure_ascii=False, default=str)
 
     except Exception as e:
-        return json.dumps({"error": str(e), "hint": "Try odoo_get_fields to check available fields"})
+        err = str(e)
+        if "Access Denied" in err or "Fault 3" in err:
+            return json.dumps({
+                "error": "Odoo Access Denied — the API key is expired or invalid.",
+                "fix": "Go to Railway → Variables and update ODOO_API_KEY with a valid Odoo API key (Settings → Technical → API Keys in Odoo)."
+            })
+        return json.dumps({"error": err, "hint": "Try odoo_get_fields to check available fields"})
 
 # ── System prompt ──────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are an AI assistant for a construction company using Odoo 18.
