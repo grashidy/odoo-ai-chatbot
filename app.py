@@ -392,11 +392,11 @@ def chat():
                 def _groq_call():
                     try:
                         _result[0] = client.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
+                            model="meta-llama/llama-4-scout-17b-16e-instruct",
                             messages=messages,
                             tools=TOOLS,
                             tool_choice="auto",
-                            max_tokens=2048,
+                            max_tokens=4096,
                             temperature=0.1,
                         )
                     except Exception as e:
