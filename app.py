@@ -449,7 +449,7 @@ def chat():
                 def _groq_call():
                     try:
                         _result[0] = client.chat.completions.create(
-                            model="meta-llama/llama-4-scout-17b-16e-instruct",
+                            model="llama-3.3-70b-versatile",
                             messages=messages,
                             tools=TOOLS,
                             tool_choice="auto",
@@ -584,7 +584,7 @@ def chat():
                     def _final_call():
                         try:
                             _fr[0] = client.chat.completions.create(
-                                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                                model="llama-3.3-70b-versatile",
                                 messages=messages,
                                 max_tokens=2048,
                                 temperature=0.1,
@@ -761,7 +761,7 @@ def parse_boq():
         try:
             client_tmp = Groq(api_key=groq_key)
             resp = client_tmp.chat.completions.create(
-                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=400, temperature=0,
             )
@@ -961,7 +961,7 @@ def _run_ai_sync(user_text):
     for _ in range(5):
         try:
             resp = client.chat.completions.create(
-                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                model="llama-3.3-70b-versatile",
                 messages=messages,
                 tools=TOOLS,
                 tool_choice="auto",
