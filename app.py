@@ -1,4 +1,4 @@
-import xmlrpc.client, json, os, time, re, logging, threading, io, base64
+import xmlrpc.client, json, os, time, re, logging, threading, io, base64, socket
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from groq import Groq
@@ -8,6 +8,9 @@ except ImportError:
     _requests = None
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+# Global socket timeout prevents xmlrpc calls from hanging indefinitely
+socket.setdefaulttimeout(20)
 
 # ── Load Groq key: env var (cloud) → .groq_key file (local) ───────────────────
 _key_file = Path(__file__).parent / ".groq_key"
@@ -153,11 +156,18 @@ def _coerce_list(raw):
         return [raw] if raw else []
     return []
 
+_MAX_RESULT_CHARS = 6000  # truncate giant tool results so Groq doesn't choke
+
+def _truncate_result(text):
+    if len(text) > _MAX_RESULT_CHARS:
+        return text[:_MAX_RESULT_CHARS] + f'\n... [truncated — {len(text)} chars total, showing first {_MAX_RESULT_CHARS}]'
+    return text
+
 def run_tool(name, args):
     try:
         if name == "odoo_search":
             domain = _coerce_domain(args.get("domain", []))
-            limit  = min(int(args.get("limit", 50)), 200)
+            limit  = min(int(args.get("limit", 30)), 100)   # reduced: 30 default, 100 max
             raw_fields = args.get("fields", ["display_name"])
             fields = raw_fields if isinstance(raw_fields, list) else _coerce_list(raw_fields)
             if not fields:
@@ -166,7 +176,7 @@ def run_tool(name, args):
             if args.get("order"):
                 kwargs["order"] = args["order"]
             results = odoo_call(args["model"], "search_read", [domain], kwargs)
-            return json.dumps(results, ensure_ascii=False, default=str)
+            return _truncate_result(json.dumps(results, ensure_ascii=False, default=str))
 
         elif name == "odoo_count":
             domain = _coerce_domain(args.get("domain", []))
@@ -208,7 +218,7 @@ def run_tool(name, args):
                     else:
                         item[k] = v
                 cleaned.append(item)
-            return json.dumps(cleaned, ensure_ascii=False, default=str)
+            return _truncate_result(json.dumps(cleaned, ensure_ascii=False, default=str))
 
     except Exception as e:
         err = str(e)
@@ -562,17 +572,29 @@ def chat():
                 # If any single tool has been called 3+ times, stop looping
                 loop_detected = any(v >= 3 for v in tool_call_counts.values())
 
-                # Execute all tools and collect results
+                # Execute all tools and collect results (with per-call timeout)
                 for tc in msg.tool_calls:
                     try:
                         args = json.loads(tc.function.arguments)
                     except Exception:
                         args = {}
-                    result = run_tool(tc.function.name, args)
+                    _tool_result = [None]
+                    _tool_done   = threading.Event()
+                    def _do_tool(n=tc.function.name, a=args):
+                        try:
+                            _tool_result[0] = run_tool(n, a)
+                        except Exception as _te:
+                            _tool_result[0] = json.dumps({"error": str(_te)})
+                        finally:
+                            _tool_done.set()
+                    threading.Thread(target=_do_tool, daemon=True).start()
+                    if not _tool_done.wait(timeout=18):
+                        _tool_result[0] = json.dumps({"error": "Odoo query timed out after 18s. The server may be busy — try a simpler query or smaller limit."})
+                        logging.warning("Tool %s timed out", tc.function.name)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
-                        "content": result
+                        "content": _tool_result[0] or json.dumps({"error": "empty result"})
                     })
 
                 if loop_detected:
