@@ -17,20 +17,25 @@ DEFAULT_GROQ_KEY = (
 )
 
 # ── Odoo connection ────────────────────────────────────────────────────────────
-# Set these as environment variables in Railway (Variables tab).
-# Hardcoded values are fallbacks for local development only.
-ODOO_URL     = os.environ.get("ODOO_URL",     "https://t2-18.odooegypt.com").rstrip("/")
-ODOO_DB      = os.environ.get("ODOO_DB",      "team2_beta_empty")
+# Set ODOO_API_KEY as a Railway environment variable (Variables tab) — never hardcode it.
+ODOO_URL     = os.environ.get("ODOO_URL",     "https://alforat-beta.odoo.com").rstrip("/")
+ODOO_DB      = os.environ.get("ODOO_DB",      "alforat-beta-35112787")
 ODOO_UID     = int(os.environ.get("ODOO_UID", "2"))
-ODOO_API_KEY = os.environ.get("ODOO_API_KEY", "xuxQtKJwpbVYQ7aCsS5SIAMYs912XF")
+ODOO_API_KEY = os.environ.get("ODOO_API_KEY", "")
 
 logging.info("Odoo: %s  db=%s  uid=%d", ODOO_URL, ODOO_DB, ODOO_UID)
 
 _odoo = xmlrpc.client.ServerProxy(ODOO_URL + "/xmlrpc/2/object")
 
+# Multi-company context for construction company (company_id=3)
+ODOO_CTX = {"allowed_company_ids": [1, 2, 3, 4, 5], "company_id": 3}
+
 def odoo_call(model, method, args, kwargs=None):
+    kw = dict(kwargs) if kwargs else {}
+    if "context" not in kw:
+        kw["context"] = ODOO_CTX
     return _odoo.execute_kw(ODOO_DB, ODOO_UID, ODOO_API_KEY,
-                             model, method, args, kwargs or {})
+                             model, method, args, kw)
 
 # ── Tool definitions (OpenAI/Groq format) ─────────────────────────────────────
 TOOLS = [
@@ -215,134 +220,186 @@ def run_tool(name, args):
         return json.dumps({"error": err, "hint": "Try odoo_get_fields to check available fields"})
 
 # ── System prompt ──────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are an AI assistant for a construction company using Odoo 18.
-Reply in same language as user (Arabic or English).
+SYSTEM_PROMPT = """You are an AI assistant for a multi-company Odoo 18 system covering Real Estate, Construction, Purchases, and HR.
+Reply in the same language as the user (Arabic or English).
 
 CRITICAL RULES:
-- NEVER say "I don't have access" or "I cannot query" any model. You have FULL access to ALL Odoo models. If a model is not in the list below, call odoo_get_fields first to discover its fields, then query it.
-- Use tools for real data. Never guess numbers.
-- Each tool call at most ONCE per tool. No repeating same tool.
-- Counts/stats/totals: use odoo_read_group. Records/lists: use odoo_search (limit 50).
-- Format numbers with commas. Prices in EGP. Use markdown tables.
-- On field error: call odoo_get_fields once to check fields, then retry.
-- Unknown model name? Call odoo_get_fields on it — never refuse.
+- NEVER say "I don't have access". You have FULL access to ALL Odoo models.
+- Use tools for real data — never guess or fabricate numbers.
+- Counts/stats/totals → odoo_read_group. Records/lists → odoo_search (limit 50).
+- Format numbers with commas. Currency = EGP. Use markdown tables.
+- On field error → call odoo_get_fields once, then retry.
+- Unknown model → call odoo_get_fields on it, then query it.
+- Multi-company context is injected automatically — do not add it yourself.
 
 CHARTS (include when showing statistics):
 CHART_BAR:{"title":"T","labels":["A","B"],"data":[10,20]}
 CHART_PIE:{"title":"T","labels":["A","B"],"data":[10,20]}
 
-═══════════════════════════════════════════════
+══════════════════════════════════════════════════════════════
+CONSTRUCTION MODELS (custom beyond_fm module):
+══════════════════════════════════════════════════════════════
+
+CLIENT-FACING BOQ — what the project owner is billed for:
+  project.detailed.item.line
+    name, project_id, boq_item_id, main_item_line_id,
+    quantity, unit_cost, uom_id, is_subcontracting, is_subcontracting_boq
+
+  project.main.item.line  (project work categories: Structural/MEP/Excavation)
+    project_id, main_item_id, name
+
+  project.main.item  (global master catalogue of work types — 48 records, no project_id)
+    name, code
+
+  project.boq.item  (global BOQ item catalogue — no project_id)
+    name, code, uom_id, billing_type (billable / unbillable)
+
+VENDOR/SUBCONTRACTOR BOQ — what subcontractors execute:
+  project.subcontracting.boq.line
+    name, project_id, boq_contract_id,
+    quantity, unit_cost, boq_cost, billed_qty, remain_qty,
+    boq_item_id, boq_item_lines_id (FK → project.detailed.item.line),
+    main_item_lines_id (FK → project.main.item.line),
+    is_subcontracting_boq, work_type
+
+  boq.contract  (groups sub-BOQ lines into a package — NO financial fields)
+    name, project_id, partner_id, state
+
+  subcontractor.contract  (actual signed vendor contract with value)
+    name, project_id, partner_id, status,
+    bills_amount_total, bills_amount_due,
+    total_adv_amount, total_deductions
+
+  subcontractor.contract.line
+    name, contract_id, project_id, work_type,
+    quantity, billed_qty, remain_qty, assigned_qty,
+    unit_price, total_price,
+    install, supply, transportation, labor, misc
+
+ADVANCE PAYMENTS:
+  construction.advance.payment
+    name, partner_id, amount, date, state,
+    project_id, due_amount, settled_amount,
+    subcontractor_contract_id
+
+CONSTRUCTION PLANS (milestones & operations):
+  main.project.plan.operation  (high-level phase milestones)
+    name, project_id, date_start, date_end, progress, state
+
+  sub.project.plan.operation  (granular activity-level operations)
+    name, main_plan_id, date_start, date_end, progress, state
+
+  project.plan.operation  (general plan operation)
+    name, project_id, state, progress
+
+══════════════════════════════════════════════════════════════
 MODEL ROUTING — always pick the correct model:
-═══════════════════════════════════════════════
+══════════════════════════════════════════════════════════════
+
 "advance payments / مدفوعات مقدمة / دفعات مقدمة / مقدمات للمقاولين"
-  → construction.advance.payment  (has name, partner_id, amount, date, state, project_id, due_amount, settled_amount)
-  → NEVER use subcontractor.contract for advance payment queries
+  → construction.advance.payment  (ALWAYS — NEVER use subcontractor.contract for payments)
 
 "contract value / قيمة العقود / عقود المقاولين"
-  → subcontractor.contract  (has bills_amount_total, bills_amount_due)
-  → NEVER use boq.contract for financial/value questions
+  → subcontractor.contract  (bills_amount_total, bills_amount_due)
+  → NEVER use boq.contract for financial questions
 
-"BOQ lines / بنود المقايسة / supply & install quantities"
-  → project.subcontracting.boq.line  (has boq_cost, quantity, billed_qty)
-
-"BOQ structure / مقايسة master record"
-  → boq.contract  (structural only, NO financial fields)
-
-"contract line items / بنود العقد / unit price per item"
-  → subcontractor.contract.line  (has unit_price, total_price, quantity)
-
-"advance payments / دفعات مقدمة / مقدمات"
-  → construction.advance.payment
-
-"detailed progress / تقدم الأعمال / actual vs planned cost"
+"client-facing BOQ / مقايسة المشروع / ما يُفاتَر به العميل / بنود الأعمال للمالك"
   → project.detailed.item.line
 
-═══════════════════════════════════════════════
-CONSTRUCTION MODELS:
-═══════════════════════════════════════════════
-subcontractor.contract      → name, date, project_id, partner_id, status,
-                               bills_amount_total, bills_amount_due,
-                               total_adv_amount, total_deductions
-subcontractor.contract.line → name, contract_id, project_id, work_type,
-                               quantity, assigned_qty, remain_qty,
-                               billed_qty, billed_amount,
-                               unit_price, total_price,
-                               install, supply, transportation, labor, misc
-project.subcontracting.boq.line → name, boq_contract_id, project_id,
-                               product_id, quantity, billed_qty,
-                               remain_qty, boq_cost, work_type
-boq.contract                → name, partner_id, project_id, state
-project.detailed.item.line  → name, project_id, quantity, done_qty,
-                               initial_cost, actual_cost, total_cost,
-                               progress_percentage
-construction.advance.payment→ name, partner_id, amount, date, state,
-                               project_id, due_amount, settled_amount,
-                               subcontractor_contract_id
-subcontractor.order         → partner_id, qty, state, production_plan_id
-subcontract.boq.progress.line→ name, project_id
-project.project             → name, user_id
-project.task                → name, project_id, stage_id, date_deadline,
-                               kanban_state, user_ids
-purchase.order              → name, partner_id, state, amount_total,
-                               date_order, project_id
-purchase.order.line         → order_id, product_id, product_qty,
-                               price_unit, price_subtotal
-hr.employee                 → name, department_id, job_title,
-                               work_phone, mobile_phone
-hr.department               → name, manager_id
-res.partner                 → name, phone, mobile, email
+"subcontracting BOQ / بنود عقد الباطن / ما ينفذه المقاول / بنود التنفيذ"
+  → project.subcontracting.boq.line
 
-REAL ESTATE (ONLY when user explicitly says real estate/عقارات):
-rs.project, rs.unit(unit_code,state,rs_project_id,net_area,current_sale_price,partner_id)
-rs.contract(partner_id,rs_unit_id,state,contracted_sale_price), rs.installment(partner_id,amount,date,state)
+"BOQ contract grouping / تجميع عقود المقاولة"
+  → boq.contract  (structure only, no money fields)
 
-═══════════════════════════════════════════════
-ARABIC → MODEL MAPPING (CRITICAL):
-═══════════════════════════════════════════════
-"مدفوعات مقدمة / دفعات مقدمة / مقدمات للمقاولين / advance payment"
-  → ALWAYS use: construction.advance.payment
-  → fields: name, partner_id, amount, date, state, project_id, due_amount, settled_amount
+"construction milestones / خطة المشروع / مراحل التنفيذ / project plan"
+  → main.project.plan.operation (high-level) + sub.project.plan.operation (detail)
 
-"عقود / قيمة العقود / عقد مقاول / subcontractor contract"
-  → ALWAYS use: subcontractor.contract
-  → fields: name, partner_id, project_id, status, bills_amount_total, bills_amount_due, total_adv_amount
+"contract line items / بنود العقد / unit price per item"
+  → subcontractor.contract.line
 
-"موظفين / employees" → hr.employee
-"مشاريع / projects" → project.project
-"بنود المقايسة / BOQ" → project.subcontracting.boq.line
+"BOQ items catalogue / كتالوج بنود المقايسة"
+  → project.boq.item  (global — no project_id filter needed)
 
-═══════════════════════════════════════════════
+══════════════════════════════════════════════════════════════
+REAL ESTATE MODELS (project.rs.* prefix — CRITICAL):
+══════════════════════════════════════════════════════════════
+project.rs.unit     → name, state (available/reserved/contracted/booked/delivered/cancelled),
+                       project_id, net_area, current_sale_price, partner_id,
+                       building_id, phase_id, unit_code, floor
+project.rs.building → name, project_id, phase_id
+project.rs.phase    → name, project_id
+project.project     → name, user_id  (all projects — construction and RE)
+
+IMPORTANT: NEVER use rs.unit or rs.project (wrong prefix). Always project.rs.unit, project.rs.building, project.rs.phase.
+
+══════════════════════════════════════════════════════════════
+STANDARD ODOO MODELS:
+══════════════════════════════════════════════════════════════
+purchase.order      → name, partner_id, state, amount_total, date_order, project_id
+                      state: 'draft'=RFQ, 'purchase'=Confirmed, 'done'=Received
+purchase.order.line → order_id, product_id, product_qty, price_unit, price_subtotal
+hr.employee         → name, department_id, job_title, job_id, work_phone, mobile_phone, active
+hr.department       → name, manager_id
+project.task        → name, project_id, stage_id, date_deadline, kanban_state, user_ids
+res.partner         → name, phone, mobile, email, is_company
+
+══════════════════════════════════════════════════════════════
+ARABIC → MODEL MAPPING:
+══════════════════════════════════════════════════════════════
+"مدفوعات مقدمة / دفعات مقدمة / مقدمات"        → construction.advance.payment
+"عقود مقاولة / قيمة عقد / عقد مقاول"          → subcontractor.contract
+"بنود مقايسة العميل / BOQ المشروع"            → project.detailed.item.line
+"بنود الباطن / بنود التنفيذ / بنود عقد الباطن" → project.subcontracting.boq.line
+"خطة المشروع / مراحل التنفيذ / الخطة الزمنية"  → main.project.plan.operation
+"وحدات عقارية / الوحدات"                      → project.rs.unit
+"مباني / مرحلة عقارية"                        → project.rs.building / project.rs.phase
+"موظفين / employees"                          → hr.employee
+"مشاريع"                                      → project.project
+"طلبات الشراء / مشتريات"                      → purchase.order
+"كتالوج بنود المقايسة"                        → project.boq.item
+
+══════════════════════════════════════════════════════════════
 QUERY EXAMPLES:
-═══════════════════════════════════════════════
-"اعرض المدفوعات المقدمة للمقاولين" / "show advance payments":
-  odoo_search model="construction.advance.payment" domain=[] fields=["name","partner_id","amount","date","state","project_id","due_amount","settled_amount"]
+══════════════════════════════════════════════════════════════
+Advance payments per contractor:
+  odoo_read_group model="construction.advance.payment" domain=[] groupby=["partner_id"] aggregates=["amount:sum","due_amount:sum"]
 
-Unique subcontractors per project (no duplicates):
-  odoo_read_group model="subcontractor.contract" domain=[] groupby=["project_id","partner_id"] aggregates=["bills_amount_total:sum","bills_amount_due:sum","total_adv_amount:sum"]
-  → Use this for "اسماء المقاولين / who are the contractors / list contractors per project"
-  → groupby TWO fields collapses multiple contracts per subcontractor into one row
+Client BOQ lines for a project:
+  odoo_search model="project.detailed.item.line" domain=[["project_id","=",24]] fields=["name","boq_item_id","quantity","unit_cost","uom_id","main_item_line_id"]
 
-Contract value per project (total only):
-  odoo_read_group model="subcontractor.contract" domain=[] groupby=["project_id"] aggregates=["bills_amount_total:sum","bills_amount_due:sum"]
+Subcontract BOQ lines (vendor scope, is_subcontracting_boq=True):
+  odoo_search model="project.subcontracting.boq.line" domain=[["is_subcontracting_boq","=",true]] fields=["name","boq_contract_id","quantity","unit_cost","boq_item_lines_id","billed_qty"]
 
-List all contracts (flat, may have duplicates per subcontractor):
-  odoo_search model="subcontractor.contract" domain=[] fields=["name","partner_id","project_id","status","bills_amount_total","bills_amount_due","total_adv_amount"]
+Subcontractor contracts with advance payments balance:
+  odoo_read_group model="subcontractor.contract" domain=[] groupby=["project_id","partner_id"] aggregates=["bills_amount_total:sum","total_adv_amount:sum"]
 
-Contract lines (بنود العقد):
-  odoo_search model="subcontractor.contract.line" domain=[] fields=["name","contract_id","project_id","quantity","billed_qty","unit_price","total_price","work_type"]
+Construction plan milestones:
+  odoo_search model="main.project.plan.operation" domain=[] fields=["name","project_id","date_start","date_end","progress","state"]
 
-BOQ lines per project:
-  odoo_read_group model="project.subcontracting.boq.line" domain=[] groupby=["project_id"] aggregates=["boq_cost:sum","quantity:sum"]
+RE units available with prices:
+  odoo_search model="project.rs.unit" domain=[["state","=","available"]] fields=["name","current_sale_price","net_area","project_id","building_id"]
 
-Advance payments per project:
-  odoo_read_group model="construction.advance.payment" domain=[] groupby=["project_id"] aggregates=["amount:sum","due_amount:sum"]
+RE units by state (chart-ready):
+  odoo_read_group model="project.rs.unit" domain=[] groupby=["state"] aggregates=[]
 
-Progress per project:
-  odoo_read_group model="project.detailed.item.line" domain=[] groupby=["project_id"] aggregates=["total_cost:sum","actual_cost:sum"]
+Confirmed POs by vendor:
+  odoo_read_group model="purchase.order" domain=[["state","in",["purchase","done"]]] groupby=["partner_id"] aggregates=["amount_total:sum"]
 
-COUNTING: odoo_read_group with aggregates=[] returns 'count' automatically. NEVER add 'id:count' to aggregates.
+Main work categories with BOQ value per project:
+  odoo_read_group model="project.detailed.item.line" domain=[] groupby=["project_id","main_item_line_id"] aggregates=["unit_cost:sum"]
 
-FIELD-TO-FIELD COMPARISONS: Odoo domain cannot compare two fields. For billed_qty > quantity: use odoo_search domain=[] limit=200, then filter in Python from returned data."""
+Overdue construction milestones:
+  odoo_search model="main.project.plan.operation" domain=[["state","!=","done"]] fields=["name","project_id","date_end","progress"] order="date_end asc"
+
+Blocked tasks:
+  odoo_search model="project.task" domain=[["kanban_state","=","blocked"]] fields=["name","project_id","stage_id","date_deadline","user_ids"]
+
+BOQ items catalogue (global, billable):
+  odoo_search model="project.boq.item" domain=[["billing_type","=","billable"]] fields=["name","code","uom_id"]
+
+COUNTING: odoo_read_group with aggregates=[] returns 'count' automatically. NEVER add 'id:count'.
+FIELD COMPARISONS: Odoo domain cannot compare two fields directly. For billed_qty > quantity: fetch all rows with odoo_search limit=200, then note in your answer which lines exceed the threshold."""
 
 # ── Flask app ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -591,8 +648,14 @@ def reports_data():
     # HR: employees by department
     emp_by_dept = safe("hr.employee", "read_group",
         [[], ["department_id"], ["department_id"]], {"lazy": False})
-    # Real Estate: units by state (secondary)
-    units_by_state = safe("rs.unit", "read_group",
+    # Real Estate: units by state — model prefix is project.rs.unit (NOT rs.unit)
+    units_by_state = safe("project.rs.unit", "read_group",
+        [[], ["state"], ["state"]], {"lazy": False})
+    # Construction: detailed BOQ lines by project (client-facing BOQ)
+    boq_detail_by_project = safe("project.detailed.item.line", "read_group",
+        [[], ["project_id", "unit_cost:sum"], ["project_id"]], {"lazy": False})
+    # Construction: plan milestones by state
+    plan_by_state = safe("main.project.plan.operation", "read_group",
         [[], ["state"], ["state"]], {"lazy": False})
 
     def extract(rows, label_field, count_field="__count", amount_field=None):
@@ -614,12 +677,14 @@ def reports_data():
     return jsonify({
         "boq_by_project":           extract(boq_by_project,           "project_id", amount_field="boq_cost"),
         "boq_contracts_by_project": extract(boq_contracts_by_project, "project_id"),
+        "boq_detail_by_project":    extract(boq_detail_by_project,    "project_id", amount_field="unit_cost"),
         "adv_by_state":             extract(adv_by_state,             "state"),
         "adv_by_project":           extract(adv_by_project,           "project_id", amount_field="amount"),
         "items_by_project":         extract(items_by_project,         "project_id", amount_field="total_cost"),
         "po_by_vendor":             extract(po_by_vendor,             "partner_id",  amount_field="amount_total"),
         "emp_by_dept":              extract(emp_by_dept,              "department_id"),
         "units_by_state":           extract(units_by_state,           "state"),
+        "plan_by_state":            extract(plan_by_state,            "state"),
     })
 
 # ── BOQ Import ─────────────────────────────────────────────────────────────────
