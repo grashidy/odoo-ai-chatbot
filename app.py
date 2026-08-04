@@ -255,6 +255,7 @@ RULES:
 - Use tools for real data. Never guess or fabricate.
 - BATCH: Call ALL needed tools in ONE response — never chain across turns.
 - After tool results arrive, answer immediately. Do NOT call more tools.
+- NEVER call the same model more than once per turn — pick the right fields the first time.
 - Totals/counts → odoo_read_group. Lists → odoo_search (limit 20).
 - Format numbers with commas. Currency = EGP. Use markdown tables.
 - On field error → odoo_get_fields once, then retry. Multi-company context is automatic.
@@ -262,49 +263,96 @@ RULES:
 CHARTS: CHART_BAR:{"title":"T","labels":["A","B"],"data":[10,20]}  CHART_PIE:{"title":"T","labels":["A"],"data":[1]}
 
 ══ CONSTRUCTION MODELS — use ONLY these for any construction/project question ══
-project.project               → construction projects (name,user_id,partner_id,date_start,date)
-main.project.plan.operation   → construction milestones/phases (name,project_id,date_start,date_end,progress,state)
-sub.project.plan.operation    → sub-operations under a milestone (name,main_plan_id,date_start,date_end,progress,state)
-project.detailed.item.line    → client BOQ lines (name,project_id,quantity,unit_cost,main_item_line_id,boq_item_id)
-project.subcontracting.boq.line → subcontractor BOQ (name,project_id,quantity,unit_cost,billed_qty,remain_qty,boq_cost)
-project.main.item.line        → BOQ work categories (name,project_id,main_item_id)
-subcontractor.contract        → subcontractor contracts — use for financials (name,project_id,partner_id,bills_amount_total,bills_amount_due,total_adv_amount)
-subcontractor.contract.line   → contract line items (name,contract_id,project_id,unit_price,total_price,billed_qty,remain_qty)
-boq.contract                  → BOQ contract groups — grouping only, NO financial fields (name,project_id,partner_id,state)
-construction.advance.payment  → advance payments to contractors (name,partner_id,amount,state,project_id,due_amount,settled_amount)
-project.task                  → project tasks (name,project_id,stage_id,date_deadline,kanban_state)
-project.boq.item              → BOQ item catalogue — global (name,code,uom_id,billing_type)
+
+project.project  →  construction projects
+  Fields: name, user_id, partner_id, date_start, date (planned end),
+          expected_end_date, actual_end_date, state, last_update_status,
+          total_planned_cost, total_actual_cost
+  NOTE: fetch ALL these fields in ONE call — never call project.project twice
+
+main.project.plan.operation  →  construction plan milestones (top-level)
+  Fields: name, project_id, date (milestone date), plan_type, user_id, sub_plan_count
+  plan_type values: subcontract | raw_material | assets | labor | misc
+  NOTE: NO date_start/date_end/progress/state fields on this model
+
+sub.project.plan.operation  →  sub-operations under a milestone
+  Fields: name, project_id, main_plan_id, date_from, date_to, plan_type, user_id
+  NOTE: NO date_start/date_end/progress/state fields on this model
+
+project.detailed.item.line  →  client BOQ line items
+  Fields: name, project_id, quantity, unit_cost, total_cost (=Total Price), main_item_line_id, boq_item_id
+
+project.subcontracting.boq.line  →  subcontractor BOQ items
+  Fields: name, project_id, quantity, unit_cost, billed_qty, remain_qty, boq_cost
+  WARNING: boq_cost = "BOQ Unit Price" — always 0, do NOT use for financial totals
+
+project.main.item.line  →  BOQ section/category headers
+  Fields: name, project_id
+
+subcontractor.contract  →  subcontractor contracts — PRIMARY financial model
+  Fields: name, project_id, partner_id, contract_value (=THE contract total),
+          bills_amount_total, bills_amount_due, total_adv_amount
+  status field values: draft | running | closed   (field name is "status" NOT "state")
+
+subcontractor.contract.line  →  individual contract line items
+  Fields: name, contract_id, project_id, unit_price, total_price, billed_qty, remain_qty
+
+boq.contract  →  BOQ contract grouping only — NO financial data, NO state field
+  Fields: name, project_id, partner_id
+
+construction.advance.payment  →  advance payments to contractors/clients
+  Fields: name, partner_id, amount, state, project_id, due_amount, settled_amount, payment_type
+  state values: draft | run | settled   (NOT "running")
+  payment_type values: customer | subcontractor
+
+project.task  →  project tasks
+  Fields: name, project_id, stage_id, date_deadline, kanban_state
+
+project.boq.item  →  global BOQ item catalogue
+  Fields: name, code, uom_id, billing_type (billable|unbillable)
 
 ══ REAL ESTATE MODELS — use ONLY for RE/property questions, NEVER for construction ══
-project.rs.unit               → RE property units (name,state,project_id,current_sale_price,net_area,partner_id,building_id)
-project.rs.building           → RE buildings (name,project_id)
-project.rs.phase              → RE development phases ONLY (name,project_id) ← NOT for construction
+
+rs.dev.unit  →  RE property units for sale (USE THIS, not project.rs.unit)
+  Fields: unit_code, rs_project_id, rs_building_id, phase_id, unit_price,
+          sold_price, net_area, paid_amount, price_after_discount,
+          usability_type (commercial|administrative|residential|medical|parking_slot),
+          unit_type (apartment|duplex|villa|twin_house|town_house),
+          historical_process (holded|booked|reserved|contracted)
+
+project.rs.building  →  RE buildings (name, project_id)
+project.rs.phase     →  RE development phases (name, project_id) ← NOT for construction
 
 ══ SHARED MODELS ══
-purchase.order                → purchase orders (name,partner_id,state,amount_total,date_order) state:draft=RFQ,purchase=Confirmed,done=Received
-purchase.order.line           → PO lines (order_id,product_id,product_qty,price_unit,price_subtotal)
-hr.employee                   → employees (name,department_id,job_title,active)
-hr.department                 → departments (name,manager_id)
-res.partner                   → partners/vendors/clients (name,phone,email,is_company)
+purchase.order      → purchase orders
+  Fields: name, partner_id, state, amount_total, date_order
+  state values: draft=RFQ | sent=RFQ Sent | to approve=To Approve | purchase=Purchase Order | done=Locked | cancel=Cancelled
 
-ROUTING — which model to use:
-• "projects / list of projects / which project" → project.project (NEVER project.rs.phase)
-• "phases / milestones / plan / delayed / behind schedule / progress" → main.project.plan.operation + sub.project.plan.operation
-• "خطة / مراحل / عمليات / تأخر" → main.project.plan.operation + sub.project.plan.operation
-• BOQ / مقايسة → project.detailed.item.line
-• subcontractor BOQ / بنود الباطن → project.subcontracting.boq.line
-• contracts / عقود مقاولة → subcontractor.contract (financials)
-• advance payments / مدفوعات مقدمة → construction.advance.payment
-• RE units / وحدات عقارية / شقق → project.rs.unit
-• purchases / مشتريات → purchase.order
-• employees / موظفين → hr.employee
+purchase.order.line → PO lines (order_id,product_id,product_qty,price_unit,price_subtotal)
+hr.employee         → employees (name,department_id,job_title,job_id,active,work_phone,work_email)
+hr.department       → departments (name,manager_id)
+res.partner         → partners/vendors/clients (name,phone,email,is_company)
+
+══ ROUTING — which model to answer each question ══
+• projects / list of projects / مشاريع             → project.project (NEVER project.rs.phase)
+• plan / milestones / schedule / خطة / مراحل       → main.project.plan.operation + sub.project.plan.operation
+• client BOQ / مقايسة العميل                       → project.detailed.item.line (total_cost for amounts)
+• subcontractor BOQ items / بنود الباطن            → project.subcontracting.boq.line
+• contract totals / قيمة العقد / مبالغ العقود      → subcontractor.contract (use contract_value)
+• advance payments / مدفوعات مقدمة                → construction.advance.payment
+• RE units / وحدات عقارية / شقق / عقارات          → rs.dev.unit
+• purchases / مشتريات                             → purchase.order
+• employees / موظفين                              → hr.employee
 
 CRITICAL RULES:
-- project.rs.phase is REAL ESTATE ONLY — NEVER query it for construction questions
-- project.project is the construction projects list — always use it when asked about projects
-- Use subcontractor.contract for financial totals, NOT boq.contract
+- project.rs.phase and project.rs.unit are REAL ESTATE ONLY — NEVER for construction
+- rs.dev.unit is the correct RE sales model (project.rs.unit has NO price/status data)
+- For contract financials: always use subcontractor.contract.contract_value
+- boq.contract has NO financial fields — use subcontractor.contract instead
+- construction.advance.payment state = "run" (not "running")
 - COUNTING: odoo_read_group aggregates=[] gives count automatically; never add id:count
-- Domain cannot compare two fields — fetch rows and filter in the answer text"""
+- Domain cannot compare two fields — fetch rows and filter in the answer text
+- Call each model ONLY ONCE per turn — include all needed fields in a single call"""
 
 # ── Flask app ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
