@@ -674,9 +674,9 @@ def parse_boq():
     if not data_rows:
         return jsonify({"error": "No data rows found after the header"}), 400
 
-    # Ask Groq to map column headers → Odoo BOQ field names
+    # Ask AI to map column headers → Odoo BOQ field names
     column_map = {}
-    if groq_key:
+    if True:  # always attempt AI mapping using server key
         sample = data_rows[:3]
         prompt = (
             "I have an Excel BOQ (Bill of Quantities) tender document.\n"
