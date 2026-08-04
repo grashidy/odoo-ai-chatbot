@@ -1906,47 +1906,69 @@ async function loadReports() {
 }
 
 /* ── Voice input ─────────────────────────────────────────────────── */
-let _recog = null, _recording = false;
+let _recog = null, _recording = false, _finalTranscript = '';
+
 function toggleVoice() {
   if (_recording) { stopVoice(); return; }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { toast('Voice not supported — use Chrome/Edge'); return; }
-  if (!_recog) {
-    _recog = new SR();
-    _recog.continuous = false; _recog.interimResults = true; _recog.lang = 'ar-SA';
-    _recog.onstart = () => {
-      _recording = true;
-      document.getElementById('mic-btn').classList.add('recording');
-      document.getElementById('voice-bar').style.display = 'block';
-      document.getElementById('user-input').value = '';
-    };
-    _recog.onresult = (e) => {
-      let interim='',final='';
-      for(let i=e.resultIndex;i<e.results.length;i++){
-        const t=e.results[i][0].transcript;
-        if(e.results[i].isFinal) final+=t; else interim+=t;
-      }
-      const inp=document.getElementById('user-input');
-      inp.value=final||interim; autoResize(inp);
-      if(final) document.getElementById('voice-bar-text').textContent='✓ '+final;
-    };
-    _recog.onend = () => {
-      _stopRecUI();
-      const val=document.getElementById('user-input').value.trim();
-      if(val && !streaming) setTimeout(()=>sendMessage(),400);
-    };
-    _recog.onerror = (e) => {
-      _stopRecUI();
-      if(e.error==='not-allowed') toast('Microphone permission denied.');
-    };
-  }
-  try { _recog.start(); } catch(e) { toast('Mic error: '+e.message); }
+
+  // Always create a fresh instance — reusing causes stale-state issues
+  if (_recog) { try { _recog.abort(); } catch(e) {} }
+  _recog = new SR();
+  _finalTranscript = '';
+
+  _recog.continuous     = true;   // keep recording until user taps stop
+  _recog.interimResults = true;
+  _recog.lang           = 'ar';   // broad Arabic (works for ar-SA, ar-EG, etc.)
+
+  _recog.onstart = () => {
+    _recording = true;
+    document.getElementById('mic-btn').classList.add('recording');
+    document.getElementById('voice-bar').style.display = 'block';
+    document.getElementById('user-input').value = '';
+  };
+
+  _recog.onresult = (e) => {
+    let interim = '';
+    // Accumulate new finals into _finalTranscript; collect current interim
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) _finalTranscript += t + ' ';
+      else interim += t;
+    }
+    const full = (_finalTranscript + interim).trim();
+    const inp = document.getElementById('user-input');
+    inp.value = full;
+    autoResize(inp);
+    document.getElementById('voice-bar-text').textContent = '🎙 ' + (full || '…');
+  };
+
+  _recog.onend = () => {
+    // onend fires on stop() — send only if we got text
+    _stopRecUI();
+    const val = document.getElementById('user-input').value.trim();
+    if (val && !streaming) setTimeout(() => sendMessage(), 350);
+  };
+
+  _recog.onerror = (e) => {
+    if (e.error === 'aborted') return; // triggered by our own stop() — ignore
+    _stopRecUI();
+    if (e.error === 'not-allowed') toast('Microphone permission denied.');
+    else toast('Voice error: ' + e.error);
+  };
+
+  try { _recog.start(); } catch(e) { toast('Mic error: ' + e.message); }
 }
-function stopVoice() { if(_recog){ try{_recog.stop();}catch(e){} } _stopRecUI(); }
+
+function stopVoice() {
+  if (_recog) { try { _recog.stop(); } catch(e) {} }
+  // _stopRecUI() is called by onend
+}
 function _stopRecUI() {
-  _recording=false;
+  _recording = false;
   document.getElementById('mic-btn').classList.remove('recording');
-  document.getElementById('voice-bar').style.display='none';
+  document.getElementById('voice-bar').style.display = 'none';
 }
 
 /* ── TTS ─────────────────────────────────────────────────────────── */
