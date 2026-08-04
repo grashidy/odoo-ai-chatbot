@@ -520,57 +520,78 @@ def chat():
                     answered = True
                     break
 
-                # Notify client and count tool calls to detect loops.
-                # Key = tool_name:model so querying two DIFFERENT models with
-                # odoo_search is NOT treated as a loop.
+                # ── Parse args + deduplicate within this batch ─────────────────
+                # If the AI requests the same (tool, model) more than once in a
+                # single response, only execute the FIRST — skip the rest.
+                _seen_keys = set()
+                _batch = []   # (tc, args, call_key, is_dup)
                 for tc in msg.tool_calls:
                     try:
                         args = json.loads(tc.function.arguments)
                     except Exception:
                         args = {}
-                    yield f"data: {json.dumps({'type': 'tool', 'name': tc.function.name, 'input': args})}\n\n"
                     _model_arg = args.get("model", "") if isinstance(args, dict) else ""
                     _call_key  = f"{tc.function.name}:{_model_arg}"
-                    tool_call_counts[_call_key] = tool_call_counts.get(_call_key, 0) + 1
+                    is_dup = _call_key in _seen_keys
+                    _seen_keys.add(_call_key)
+                    _batch.append((tc, args, _call_key, is_dup))
 
-                # Loop = same (tool, model) called twice
+                # Notify client and count only real (non-dup) calls
+                for tc, args, _call_key, is_dup in _batch:
+                    if not is_dup:
+                        yield f"data: {json.dumps({'type': 'tool', 'name': tc.function.name, 'input': args})}\n\n"
+                        tool_call_counts[_call_key] = tool_call_counts.get(_call_key, 0) + 1
+                    else:
+                        logging.info("Deduped duplicate tool call: %s", _call_key)
+
+                # Cross-iteration loop = same (tool, model) called in two separate turns
                 loop_detected = any(v >= 2 for v in tool_call_counts.values())
 
-                # Execute all tools and collect results (with per-call timeout)
-                for tc in msg.tool_calls:
-                    try:
-                        args = json.loads(tc.function.arguments)
-                    except Exception:
-                        args = {}
-                    _tool_result = [None]
-                    _tool_done   = threading.Event()
-                    def _do_tool(n=tc.function.name, a=args):
-                        try:
-                            _tool_result[0] = run_tool(n, a)
-                        except Exception as _te:
-                            _tool_result[0] = json.dumps({"error": str(_te)})
-                        finally:
-                            _tool_done.set()
-                    threading.Thread(target=_do_tool, daemon=True).start()
-                    # Wait up to 45 s, sending SSE pings every 5 s so Railway
-                    # doesn't drop the idle connection during slow Odoo queries
-                    _waited = 0
-                    while _waited < 45 and not _tool_done.is_set():
-                        _tool_done.wait(timeout=5)
-                        _waited += 5
-                        if not _tool_done.is_set() and _waited < 45:
-                            yield f"data: {json.dumps({'type': 'ping'})}\n\n"
-                    if not _tool_done.is_set():
-                        _tool_result[0] = json.dumps({"error": "Odoo query timed out after 45s. The server may be busy — try a simpler query or smaller limit."})
-                        logging.warning("Tool %s timed out after 45 s", tc.function.name)
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": _tool_result[0] or json.dumps({"error": "empty result"})
-                    })
+                # ── Execute all non-dup tools in PARALLEL ──────────────────────
+                _tool_results = {}   # tc.id → result JSON string
+                _t_lock   = threading.Lock()
+                _pending  = [sum(1 for _, _, _, d in _batch if not d)]
+                _all_done = threading.Event()
+                if _pending[0] == 0:
+                    _all_done.set()
 
-                # Always inject "answer now" after any tool execution so the
-                # model doesn't output raw function-call syntax in its text
+                def _run_one(n, a, tid):
+                    try:
+                        res = run_tool(n, a)
+                    except Exception as _te:
+                        res = json.dumps({"error": str(_te)})
+                    with _t_lock:
+                        _tool_results[tid] = res
+                        _pending[0] -= 1
+                        if _pending[0] == 0:
+                            _all_done.set()
+
+                for tc, args, _call_key, is_dup in _batch:
+                    if not is_dup:
+                        threading.Thread(target=_run_one,
+                                         args=(tc.function.name, args, tc.id),
+                                         daemon=True).start()
+
+                # Wait for all parallel calls (up to 45 s), SSE ping every 5 s
+                _waited = 0
+                while _waited < 45 and not _all_done.is_set():
+                    _all_done.wait(timeout=5)
+                    _waited += 5
+                    if not _all_done.is_set() and _waited < 45:
+                        yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+
+                # Build one tool-result message per tool_call_id the assistant sent
+                for tc, args, _call_key, is_dup in _batch:
+                    if is_dup:
+                        content = json.dumps({"note": "duplicate query skipped — reuse the result already returned for this model"})
+                    else:
+                        content = _tool_results.get(tc.id)
+                        if not content:
+                            content = json.dumps({"error": "Odoo query timed out after 45s. Try a simpler query."})
+                            logging.warning("Tool %s timed out after 45 s", tc.function.name)
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
+
+                # Inject "answer now" so the next iteration produces text, not more tool calls
                 messages.append({
                     "role": "user",
                     "content": "The Odoo data above has been retrieved. Give the final answer now in the same language as the original question. Use markdown tables. Do NOT output any function call syntax or tool invocations — just the answer."
