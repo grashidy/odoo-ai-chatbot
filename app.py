@@ -633,6 +633,13 @@ def upload_boq_page():
 @app.route("/ai/parse-boq", methods=["POST"])
 def parse_boq():
     """Read uploaded Excel, extract rows, use AI to suggest column mapping."""
+    try:
+        return _parse_boq_impl()
+    except Exception as e:
+        logging.exception("Unhandled error in parse_boq")
+        return jsonify({"error": f"Server error: {e}"}), 500
+
+def _parse_boq_impl():
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
 
@@ -641,8 +648,12 @@ def parse_boq():
 
     try:
         import openpyxl
-        wb = openpyxl.load_workbook(io.BytesIO(f.read()), read_only=True, data_only=True)
+        raw_bytes = f.read()
+        wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
         ws = wb.active
+        if ws is None:
+            wb.close()
+            return jsonify({"error": "Could not read the active sheet from the Excel file"}), 400
         raw_rows = list(ws.iter_rows(values_only=True))
         wb.close()
     except Exception as e:
@@ -676,36 +687,37 @@ def parse_boq():
 
     # Ask AI to map column headers → Odoo BOQ field names
     column_map = {}
-    if True:  # always attempt AI mapping using server key
-        sample = data_rows[:3]
-        prompt = (
-            "I have an Excel BOQ (Bill of Quantities) tender document.\n"
-            f"Column headers (0-indexed): {list(enumerate(headers))}\n"
-            f"Sample rows: {sample}\n\n"
-            "Map each column INDEX to one of these Odoo field names:\n"
-            "  name        → item description / work item name (required)\n"
-            "  item_code   → item number / reference code\n"
-            "  quantity    → planned/BOQ quantity (numeric)\n"
-            "  unit        → unit of measure (m2, m3, kg, ls, etc)\n"
-            "  unit_price  → unit rate / unit price (numeric)\n"
-            "  work_type   → type of work (supply / install / civil / labor / etc)\n"
-            "  notes       → remarks or notes\n\n"
-            "Return ONLY valid JSON like: {\"0\": \"item_code\", \"1\": \"name\", \"3\": \"quantity\", \"4\": \"unit_price\"}\n"
-            "Skip columns that don't map to any field (totals, subtotals, row numbers)."
-        )
-        try:
-            _boq_client, _boq_model = _make_chat_client(_boq_override)
+    sample = data_rows[:3]
+    prompt = (
+        "I have an Excel BOQ (Bill of Quantities) tender document.\n"
+        f"Column headers (0-indexed): {list(enumerate(headers))}\n"
+        f"Sample rows: {sample}\n\n"
+        "Map each column INDEX to one of these Odoo field names:\n"
+        "  name        → item description / work item name (required)\n"
+        "  item_code   → item number / reference code\n"
+        "  quantity    → planned/BOQ quantity (numeric)\n"
+        "  unit        → unit of measure (m2, m3, kg, ls, etc)\n"
+        "  unit_price  → unit rate / unit price (numeric)\n"
+        "  work_type   → type of work (supply / install / civil / labor / etc)\n"
+        "  notes       → remarks or notes\n\n"
+        "Return ONLY valid JSON like: {\"0\": \"item_code\", \"1\": \"name\", \"3\": \"quantity\", \"4\": \"unit_price\"}\n"
+        "Skip columns that don't map to any field (totals, subtotals, row numbers)."
+    )
+    try:
+        _boq_client, _boq_model = _make_chat_client(_boq_override)
+        if _boq_client is not None:
             resp = _boq_client.chat.completions.create(
                 model=_boq_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=400, temperature=0,
+                timeout=25,
             )
             raw_json = resp.choices[0].message.content.strip()
             m = re.search(r'\{[^{}]+\}', raw_json, re.DOTALL)
             if m:
                 column_map = json.loads(m.group())
-        except Exception as e:
-            logging.warning("Groq column mapping failed: %s", e)
+    except Exception as e:
+        logging.warning("AI column mapping failed: %s", e)
 
     return jsonify({
         "headers": headers,
