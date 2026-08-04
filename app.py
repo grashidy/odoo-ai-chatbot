@@ -10,7 +10,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # Global socket timeout prevents xmlrpc calls from hanging indefinitely
-socket.setdefaulttimeout(20)
+socket.setdefaulttimeout(55)
 
 # ── Load Groq key: env var (cloud) → .groq_key file (local) ───────────────────
 _key_file = Path(__file__).parent / ".groq_key"
@@ -589,9 +589,17 @@ def chat():
                         finally:
                             _tool_done.set()
                     threading.Thread(target=_do_tool, daemon=True).start()
-                    if not _tool_done.wait(timeout=18):
-                        _tool_result[0] = json.dumps({"error": "Odoo query timed out after 18s. The server may be busy — try a simpler query or smaller limit."})
-                        logging.warning("Tool %s timed out", tc.function.name)
+                    # Wait up to 45 s, sending SSE pings every 5 s so Railway
+                    # doesn't drop the idle connection during slow Odoo queries
+                    _waited = 0
+                    while _waited < 45 and not _tool_done.is_set():
+                        _tool_done.wait(timeout=5)
+                        _waited += 5
+                        if not _tool_done.is_set() and _waited < 45:
+                            yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+                    if not _tool_done.is_set():
+                        _tool_result[0] = json.dumps({"error": "Odoo query timed out after 45s. The server may be busy — try a simpler query or smaller limit."})
+                        logging.warning("Tool %s timed out after 45 s", tc.function.name)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
