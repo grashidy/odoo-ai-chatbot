@@ -156,7 +156,7 @@ def _coerce_list(raw):
         return [raw] if raw else []
     return []
 
-_MAX_RESULT_CHARS = 6000  # truncate giant tool results so Groq doesn't choke
+_MAX_RESULT_CHARS = 3500  # truncate giant tool results so Groq doesn't choke
 
 def _truncate_result(text):
     if len(text) > _MAX_RESULT_CHARS:
@@ -464,7 +464,7 @@ def chat():
                             messages=messages,
                             tools=TOOLS,
                             tool_choice="auto",
-                            max_tokens=4096,
+                            max_tokens=1800,
                             temperature=0.1,
                         )
                     except Exception as e:
@@ -487,9 +487,15 @@ def chat():
                     is_rate      = "rate_limit" in err_msg.lower() or "429" in err_msg
                     is_tool_fail = "tool_use_failed" in err_msg or "tool call validation" in err_msg.lower()
                     if is_rate:
-                        # Parse actual wait time from Groq error message
-                        m_wait = re.search(r'try again in ([\d.]+)s', err_msg, re.IGNORECASE)
-                        wait_sec = int(float(m_wait.group(1))) + 2 if m_wait else 65
+                        # Parse Groq wait time — handles "5s", "1m5s", "1m5.000s"
+                        _m_min = re.search(r'try again in (\d+)m([\d.]+)s', err_msg, re.IGNORECASE)
+                        _m_sec = re.search(r'try again in ([\d.]+)s', err_msg, re.IGNORECASE)
+                        if _m_min:
+                            wait_sec = int(_m_min.group(1)) * 60 + int(float(_m_min.group(2))) + 2
+                        elif _m_sec:
+                            wait_sec = int(float(_m_sec.group(1))) + 2
+                        else:
+                            wait_sec = 65
                         if "per day" in err_msg.lower() or "tpd" in err_msg.lower() or wait_sec > 300:
                             yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ Daily API quota exhausted. Please wait a few hours or use a new Groq API key (free at console.groq.com).'})}\n\n"
                             answered = True
