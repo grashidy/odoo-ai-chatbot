@@ -642,29 +642,39 @@ def parse_boq():
 import unicodedata as _ucd
 
 def _norm_header(h):
-    """Normalize Arabic/Unicode header for reliable keyword matching."""
-    h = _ucd.normalize('NFKC', str(h))
-    # strip invisible Unicode format/control chars (RTL marks, ZWS, BOM, NBSP…)
-    h = re.sub(r'[ -​-‏‪-‮⁠-⁩﻿\xa0]+', ' ', h)
+    """Normalize Arabic header: alef variants, alef-maqsura to ya, ta-marbuta, harakat, invisible chars."""
+    h = _ucd.normalize("NFKC", str(h))
+    cleaned = []
+    for ch in h:
+        cp = ord(ch)
+        if (0x200B <= cp <= 0x200F or 0x202A <= cp <= 0x202E or
+                0x2060 <= cp <= 0x2069 or cp in (0xFEFF, 0xA0)):
+            cleaned.append(" ")
+        else:
+            cleaned.append(ch)
+    h = "".join(cleaned)
+    h = re.sub("[\u0623\u0625\u0622\u0671]", "\u0627", h)  # alef variants -> bare alef
+    h = h.replace("\u0649", "\u064A")  # alef maqsura (\u0649) -> ya (\u064A)
+    h = h.replace("\u0629", "\u0647")  # ta marbuta -> ha
+    h = re.sub("[\u064B-\u065F]", "", h)  # strip harakat
     return h.strip().lower()
 
-# Rules: first match wins per field; Arabic chars compared after normalization
 _BOQ_KEYWORD_RULES = [
-    ("name",       ["البند", "بيان", "الوصف", "وصف", "description", "item desc",
-                    "task code desc", "work desc", "item name", "activity", "details"]),
-    ("item_code",  ["القسم", "قسم", "رقم البند", "رقم", "بند رقم", "item code", "item no",
-                    "task code", "section", "serial", "ref"]),
-    ("quantity",   ["الكمية", "كمية", "كميه", "كميات", "quantity", "qty"]),
-    ("unit",       ["الوحدة", "وحدة", "وحده", "unit of", "uom", "task code unit"]),
-    ("unit_cost",  ["الفئة", "فئة", "سعر الوحدة", "سعر الوحده", "سعر", "rate",
-                    "unit price", "unit rate", "unit cost"]),
-    ("total_cost", ["الاجمالي", "الإجمالي", "اجمالي", "إجمالي", "المبلغ",
+    ("name",       ["\u0627\u0644\u0628\u0646\u062f", "\u0628\u064a\u0627\u0646", "\u0627\u0644\u0648\u0635\u0641", "\u0648\u0635\u0641",
+                    "description", "task code description", "work description", "item name", "activity"]),
+    ("item_code",  ["\u0627\u0644\u0642\u0633\u0645", "\u0642\u0633\u0645", "\u0631\u0642\u0645 \u0627\u0644\u0628\u0646\u062f", "section",
+                    "item code", "item no", "task code", "serial"]),
+    ("quantity",   ["\u0627\u0644\u0643\u0645\u064a\u0629", "\u0643\u0645\u064a\u0629", "\u0643\u0645\u064a\u0647", "quantity", "qty"]),
+    ("unit",       ["\u0627\u0644\u0648\u062d\u062f\u0629", "\u0648\u062d\u062f\u0629", "\u0648\u062d\u062f\u0647", "unit of measure", "uom", "task code unit"]),
+    ("unit_cost",  ["\u0627\u0644\u0641\u0626\u0629", "\u0641\u0626\u0629", "\u0633\u0639\u0631 \u0627\u0644\u0648\u062d\u062f\u0629", "\u0633\u0639\u0631",
+                    "unit price", "unit rate", "unit cost", "rate"]),
+    ("total_cost", ["\u0627\u0644\u0627\u062c\u0645\u0627\u0644\u064a", "\u0627\u062c\u0645\u0627\u0644\u064a", "\u0627\u0644\u0645\u0628\u0644\u063a",
                     "total", "amount", "subtotal", "total cost", "total amount"]),
-    ("work_type",  ["نوع العمل", "نوع الاعمال", "work type", "category", "type"]),
-    ("notes",      ["ملاحظات", "ملاحظه", "notes", "remarks", "comments"]),
+    ("work_type",  ["\u0646\u0648\u0639 \u0627\u0644\u0639\u0645\u0644", "work type", "category"]),
+    ("notes",      ["\u0645\u0644\u0627\u062d\u0638\u0627\u062a", "resource description", "notes", "remarks"]),
 ]
 _BOQ_SKIP_KEYWORDS = ["#n/a", "cost code", "wastage", "usage", "resource code",
-                       "billed", "remain", "ok /", "ok/"]
+                       "billed", "remain", "col0"]
 
 def _keyword_map_boq(headers):
     """Map column indices to BOQ field names using Arabic/English keywords."""
@@ -681,8 +691,8 @@ def _keyword_map_boq(headers):
                 result[str(i)] = field
                 claimed_fields.add(field)
                 break
+    logging.info("Keyword BOQ map: %s", result)
     return result
-
 def _parse_boq_impl():
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
@@ -856,7 +866,8 @@ def import_boq():
                 continue
 
             qty        = _to_float(vals.get("quantity", 0))
-            unit_cost  = _to_float(vals.get("unit_cost", 0))
+            # accept both "unit_cost" (new) and "unit_price" (old browser cache)
+            unit_cost  = _to_float(vals.get("unit_cost") or vals.get("unit_price", 0))
             total_cost = _to_float(vals.get("total_cost", 0))
             # Derive missing values if possible
             if qty and unit_cost and not total_cost:
