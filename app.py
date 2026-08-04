@@ -444,7 +444,7 @@ def chat():
             for m in recent:
                 messages.append({"role": m["role"], "content": m.get("content") or ""})
 
-            max_iterations   = 3
+            max_iterations   = 5
             tool_call_counts = {}   # tool_name → how many times called this turn
             tool_fail_count  = 0   # consecutive schema-validation failures
             answered         = False
@@ -567,16 +567,20 @@ def chat():
                     answered = True
                     break
 
-                # Notify client and count tool calls to detect loops
+                # Notify client and count tool calls to detect loops.
+                # Key = tool_name:model so querying two DIFFERENT models with
+                # odoo_search is NOT treated as a loop.
                 for tc in msg.tool_calls:
                     try:
                         args = json.loads(tc.function.arguments)
                     except Exception:
                         args = {}
                     yield f"data: {json.dumps({'type': 'tool', 'name': tc.function.name, 'input': args})}\n\n"
-                    tool_call_counts[tc.function.name] = tool_call_counts.get(tc.function.name, 0) + 1
+                    _model_arg = args.get("model", "") if isinstance(args, dict) else ""
+                    _call_key  = f"{tc.function.name}:{_model_arg}"
+                    tool_call_counts[_call_key] = tool_call_counts.get(_call_key, 0) + 1
 
-                # Stop looping if any single tool called 2+ times (prevents repeated same-model queries)
+                # Loop = same (tool, model) called twice
                 loop_detected = any(v >= 2 for v in tool_call_counts.values())
 
                 # Execute all tools and collect results (with per-call timeout)
@@ -617,23 +621,28 @@ def chat():
                         "role": "user",
                         "content": "You have enough data. Stop calling tools and give the final answer now."
                     })
-                    _fr = [None]; _fe = threading.Event()
+                    _fr = [None, None]; _fe = threading.Event()
                     def _final_call():
                         try:
                             _fr[0] = client.chat.completions.create(
                                 model="llama-3.1-8b-instant",
                                 messages=messages,
-                                max_tokens=2048,
+                                max_tokens=1800,
                                 temperature=0.1,
                             )
-                        except Exception:
-                            pass
+                        except Exception as _fce:
+                            _fr[1] = str(_fce)
                         finally:
                             _fe.set()
                     threading.Thread(target=_final_call, daemon=True).start()
-                    while not _fe.wait(timeout=20):
+                    while not _fe.wait(timeout=30):
                         yield f"data: {json.dumps({'type': 'ping'})}\n\n"
-                    text = (_fr[0].choices[0].message.content if _fr[0] else None) or "Unable to generate final response."
+                    if _fr[0]:
+                        text = _fr[0].choices[0].message.content or "⚠️ Empty response. Please try again."
+                    elif _fr[1]:
+                        text = f"⚠️ AI Error: {_fr[1][:300]}"
+                    else:
+                        text = "⚠️ No response received. Please try again."
                     yield f"data: {json.dumps({'type': 'text', 'text': text})}\n\n"
                     answered = True
                     break
