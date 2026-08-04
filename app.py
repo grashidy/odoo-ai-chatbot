@@ -919,6 +919,11 @@ def _twilio_send(to_number, body):
     sid   = os.environ.get("TWILIO_ACCOUNT_SID", "")
     token = os.environ.get("TWILIO_AUTH_TOKEN", "")
     from_ = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
+    # Ensure whatsapp: prefix is present
+    if from_ and not from_.startswith("whatsapp:"):
+        from_ = "whatsapp:" + from_
+    if not to_number.startswith("whatsapp:"):
+        to_number = "whatsapp:" + to_number.lstrip("whatsapp:")
     if not sid or not token:
         logging.warning("Twilio credentials not set — cannot send WhatsApp reply")
         return
@@ -928,10 +933,12 @@ def _twilio_send(to_number, body):
     auth = base64.b64encode(f"{sid}:{token}".encode()).decode()
     url  = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
     try:
-        _requests.post(url,
+        r = _requests.post(url,
             headers={"Authorization": f"Basic {auth}"},
             data={"From": from_, "To": to_number, "Body": body},
-            timeout=10)
+            timeout=15)
+        if r.status_code >= 400:
+            logging.error("Twilio API error %s: %s", r.status_code, r.text[:300])
     except Exception as e:
         logging.error("Twilio send error: %s", e)
 
@@ -981,7 +988,7 @@ def _run_ai_sync(user_text):
         {"role": "user",   "content": user_text},
     ]
 
-    for _ in range(5):
+    for _ in range(3):
         try:
             resp = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
@@ -1077,47 +1084,56 @@ def _handle_whatsapp(from_number, user_text):
 @app.route("/whatsapp", methods=["POST"])
 @app.route("/ai/whatsapp", methods=["POST"])
 def whatsapp_webhook():
-    """Twilio WhatsApp webhook. Returns 200 immediately; replies asynchronously."""
+    """Twilio WhatsApp webhook — returns TwiML ack immediately, AI reply via REST API."""
     from_number  = request.form.get("From", "").strip()
     body         = request.form.get("Body", "").strip()
     num_media    = int(request.form.get("NumMedia", "0") or "0")
     media_url    = request.form.get("MediaUrl0", "").strip()
     media_type   = request.form.get("MediaContentType0", "").strip()
 
-    if not from_number:
-        return ('<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
-                200, {"Content-Type": "text/xml"})
+    logging.info("WA webhook: from=%s body=%r media=%s", from_number, body[:60], media_type)
 
-    # ── Voice note ────────────────────────────────────────────────────────────
+    def _twiml(msg=None):
+        if msg:
+            safe = msg.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
+            xml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{safe}</Message></Response>'
+        else:
+            xml = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+        return (xml, 200, {"Content-Type": "text/xml"})
+
+    if not from_number:
+        return _twiml()
+
+    # ── Voice note ──────────────────────────────────────────────────────────
     if num_media > 0 and media_url and "audio" in media_type:
         def _handle_voice():
             try:
-                _twilio_send(from_number, "🎤 جاري تفريغ الصوت وتحليل سؤالك…")
                 transcript = _transcribe_voice(media_url)
                 if not transcript:
                     _twilio_send(from_number, "❌ لم أتمكن من تفريغ الرسالة الصوتية. حاول مرة أخرى.")
                     return
-                # Echo transcript so user knows what was understood
                 _twilio_send(from_number, f"🎙️ فهمت: {transcript}")
-                # Run AI query on the transcript
                 answer = _run_ai_sync(transcript)
                 for chunk in _split_whatsapp(_md_to_whatsapp(answer)):
                     _twilio_send(from_number, chunk)
             except Exception as e:
+                logging.error("WA voice handler error: %s", e)
                 _twilio_send(from_number, f"❌ خطأ: {str(e)[:200]}")
         threading.Thread(target=_handle_voice, daemon=True).start()
+        # Immediate TwiML ack so Twilio doesn't retry
+        return _twiml("🎤 جاري تفريغ الصوت وتحليل سؤالك…")
 
-    # ── Text message ──────────────────────────────────────────────────────────
+    # ── Text message ────────────────────────────────────────────────────────
     elif body:
         threading.Thread(
             target=_handle_whatsapp,
             args=(from_number, body),
             daemon=True
         ).start()
+        # Immediate TwiML ack — user sees this in ~1 second, full answer follows
+        return _twiml("⏳ جاري التحليل والاستعلام من Odoo…")
 
-    # Must return 200 + empty TwiML quickly (Twilio 15 s timeout)
-    return ('<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
-            200, {"Content-Type": "text/xml"})
+    return _twiml()
 
 
 if __name__ == "__main__":
