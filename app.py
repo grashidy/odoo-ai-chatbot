@@ -660,23 +660,27 @@ def _norm_header(h):
     return h.strip().lower()
 
 _BOQ_KEYWORD_RULES = [
-    # Each tuple: (odoo_field, [keywords_any_of_which_in_normalized_header_triggers_match])
-    # Arabic strings are Unicode escapes to survive file encoding issues
-    ("name",              ["البند", "بيان", "الوصف", "وصف",
-                            "description", "task code description", "work description", "item name", "activity"]),
+    # item_code MUST come before name so "item code"/"item no" headers are claimed first,
+    # preventing "item" (added to name keywords below) from matching them.
     ("item_code",         ["القسم", "قسم", "رقم البند",
                             "item code", "item no", "task code", "line code", "line no", "serial"]),
+    # name comes second; "item" / "items" / "item description" are common English column names
+    ("name",              ["البند", "بيان", "الوصف", "وصف",
+                            "description", "task code description", "work description",
+                            "item name", "item description", "activity",
+                            "item", "items"]),
     ("quantity",          ["الكمية", "كمية", "كميه", "quantity", "qty"]),
     ("unit",              ["الوحدة", "وحدة", "وحده",
-                            "description uom", "uom", "unit of measure", "task code unit"]),
+                            "description uom", "uom", "unit of measure", "task code unit", "unit"]),
     ("unit_cost",         ["الفئة", "فئة", "سعر الوحدة", "سعر",
-                            "unit cost", "unit price", "unit rate", "rate"]),
+                            "unit cost", "unit price", "unit rate", "rate", "boq rate"]),
     ("total_cost",        ["الاجمالي", "اجمالي", "المبلغ",
-                            "total", "amount", "subtotal", "total cost", "total amount"]),
-    ("main_item_line_id", ["main item line id"]),   # numeric Odoo ID column
-    ("section_name",      ["chapter name", "section header", "chapter title", "main chapter"]),  # text section label
-    ("boq_item_id",       ["description id", "boq item id"]),   # "item id" removed — too generic
-    ("work_type",         ["نوع العمل", "description categ", "categ", "work type", "category"]),
+                            "total", "amount", "subtotal", "total cost", "total amount", "boq amount"]),
+    ("main_item_line_id", ["main item line id"]),
+    ("section_name",      ["chapter name", "section header", "chapter title", "main chapter"]),
+    ("boq_item_id",       ["description id", "boq item id"]),
+    ("work_type",         ["نوع العمل", "description categ", "categ", "work type", "category",
+                            "trade", "division", "discipline"]),
     ("notes",             ["ملاحظات", "resource description", "notes", "remarks"]),
 ]
 _BOQ_SKIP_KEYWORDS = ["#n/a", "cost code", "wastage", "usage", "resource code",
@@ -720,6 +724,9 @@ def _keyword_map_boq(headers):
     for i, h in enumerate(headers):
         hl = _norm_header(h)
         if not hl or any(kw in hl for kw in _BOQ_SKIP_KEYWORDS):
+            continue
+        # Skip auto-generated no-header names like Col0, Col1, Col2 ...
+        if re.match(r'^col\d+$', hl):
             continue
         for field, keywords in _BOQ_KEYWORD_RULES:
             if field in claimed_fields:
@@ -844,9 +851,17 @@ def _parse_boq_impl():
         "  - الإجمالي/Total/Amount → total_cost\n"
         "  - القسم/Line Code/Item No → item_code\n"
         "  - 'Main Item Line ID' column with integers (537,538...) → main_item_line_id\n"
-        "  - 'Main Item Line' column with text → section_name\n"
+        "  - 'Main Item Line' column with text only → section_name\n"
         "  - 'Description ID' / 'Description Categ' → boq_item_id / work_type\n"
+        "  - 'ITEM' / 'ITEMS' / 'ITEM DESCRIPTION' standalone column with text → name (NOT section_name)\n"
+        "  - 'DIVISION' / 'TRADE' / 'DISCIPLINE' → work_type\n"
+        "  - 'BOQ RATE' / 'BOQ UNIT RATE' → unit_cost\n"
+        "  - 'BOQ AMOUNT' / 'BOQ TOTAL' → total_cost\n"
+        "  - 'BOQ UNIT' / 'BOQ UOM' → unit\n"
+        "  - Columns named 'Col0', 'Col1', 'Col2' (no header text) → SKIP or item_code for first one\n"
         "  - SKIP: #N/A columns, Cost Code, Wastage, Usage, Resource Code, billed, remain\n\n"
+        "CRITICAL RULE: section_name is ONLY for chapter/section HEADERS that have NO quantity and NO price.\n"
+        "If a column has descriptions AND quantities exist in the same rows → map it to name.\n\n"
         "Return ONLY a JSON object: {\"col_index\": \"field_name\", ...}\n"
         "Example: {\"1\":\"item_code\",\"2\":\"name\",\"3\":\"quantity\",\"4\":\"unit\",\"5\":\"unit_cost\",\"6\":\"total_cost\"}"
     )
@@ -978,12 +993,36 @@ def import_boq():
             if col_idx < len(row) and row[col_idx]:
                 vals[field] = row[col_idx]
 
+        # Pre-compute numeric values (needed for section vs item detection below)
+        qty_pre       = _to_float(vals.get("quantity", 0))
+        uc_pre        = _to_float(vals.get("unit_cost") or vals.get("unit_price", 0))
+        tc_pre        = _to_float(vals.get("total_cost", 0))
+
+        # ── section_name check FIRST ────────────────────────────────────────────
+        # This must come before the name-skip so rows that only have section_name
+        # are not silently dropped.
+        explicit_sec = str(vals.get("section_name", "")).strip()
+        if explicit_sec:
+            if qty_pre or uc_pre or tc_pre:
+                # Has quantities → section_name column was mis-mapped; treat as item name
+                if not vals.get("name"):
+                    vals["name"] = explicit_sec
+                # Fall through to normal item processing below
+            else:
+                # No quantities → true section / chapter header
+                try:
+                    sec_id = odoo_call("project.main.item.line", "create",
+                        [{"name": explicit_sec, "project_id": project_id}])
+                    current_main_id = sec_id
+                    sections += 1
+                    last_name = explicit_sec
+                except Exception as e:
+                    errors.append(f"Row {i+1} section: {_err(e)}")
+                continue
+
         # ── Carry-forward: merged-cell rows have qty/price but no name ──────────
         if not vals.get("name"):
-            q_  = _to_float(vals.get("quantity", 0))
-            uc_ = _to_float(vals.get("unit_cost") or vals.get("unit_price", 0))
-            tc_ = _to_float(vals.get("total_cost", 0))
-            if last_name and (q_ or uc_ or tc_):
+            if last_name and (qty_pre or uc_pre or tc_pre):
                 vals["name"] = last_name
                 if last_item_code and not vals.get("item_code"):
                     vals["item_code"] = last_item_code
@@ -993,8 +1032,7 @@ def import_boq():
             continue
 
         # Update carry-forward state
-        if vals.get("name"):
-            last_name = vals["name"]
+        last_name = vals["name"]
         if vals.get("item_code"):
             last_item_code = vals["item_code"]
 
@@ -1010,18 +1048,6 @@ def import_boq():
         file_main_id  = _to_int_id(vals.get("main_item_line_id"))
         file_boq_id   = _to_int_id(vals.get("boq_item_id"))
         row_main_id   = file_main_id or current_main_id  # file ID wins, else auto-tracked
-
-        # ── Explicit section_name column mapping → project.main.item.line ──
-        explicit_sec = str(vals.get("section_name", "")).strip()
-        if explicit_sec:
-            try:
-                sec_id = odoo_call("project.main.item.line", "create",
-                    [{"name": explicit_sec, "project_id": project_id}])
-                current_main_id = sec_id
-                sections += 1
-            except Exception as e:
-                errors.append(f"Row {i+1} section: {_err(e)}")
-            continue
 
         # ── Auto-detect section header (no qty, short code without dash) ────
         if _is_section_header(vals, qty, unit_cost) and not file_main_id:
