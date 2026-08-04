@@ -477,21 +477,20 @@ def chat():
                 _api_err = [None]
                 _done    = threading.Event()
 
-                # If tool results already exist in message history, force synthesis
-                # by not passing tools — this caps Groq API calls at 2 per question
-                # (1 planning call that batches all tools + 1 synthesis call)
+                # Gemini requires tool definitions present whenever the history
+                # contains tool results. Use tool_choice="none" to block new calls
+                # instead of omitting tools entirely.
                 _has_tool_results = any(m.get("role") == "tool" for m in messages)
                 def _groq_call():
                     try:
                         call_kw = dict(
                             model=_ai_model,
                             messages=messages,
+                            tools=TOOLS,
+                            tool_choice="none" if _has_tool_results else "auto",
                             max_tokens=1800,
                             temperature=0.1,
                         )
-                        if not _has_tool_results:
-                            call_kw["tools"] = TOOLS
-                            call_kw["tool_choice"] = "auto"
                         _result[0] = client.chat.completions.create(**call_kw)
                     except Exception as e:
                         _api_err[0] = e
@@ -1038,10 +1037,11 @@ def _run_ai_sync(user_text):
 
     for _ in range(3):
         _has_results = any(m.get("role") == "tool" for m in messages)
-        call_kw = dict(model=_model, messages=messages, max_tokens=1800, temperature=0.1)
-        if not _has_results:
-            call_kw["tools"] = TOOLS
-            call_kw["tool_choice"] = "auto"
+        call_kw = dict(
+            model=_model, messages=messages, tools=TOOLS,
+            tool_choice="none" if _has_results else "auto",
+            max_tokens=1800, temperature=0.1,
+        )
         try:
             resp = client.chat.completions.create(**call_kw)
         except Exception as e:
