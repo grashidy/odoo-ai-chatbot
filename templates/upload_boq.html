@@ -182,30 +182,30 @@ select:focus, input:focus { border-color: var(--accent); }
     </div>
 
     <div class="mt12">
-      <label>Import into Odoo models — select all that apply:</label>
-      <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+      <label style="margin-bottom:8px">Import into Odoo models — select all that apply:</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px">
 
-        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.2);border-radius:8px;padding:10px 14px">
-          <input type="checkbox" id="chk-detail-line" checked style="accent-color:var(--accent);width:16px;height:16px;margin-top:2px;flex-shrink:0"/>
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.22);border-radius:8px;padding:8px 10px">
+          <input type="checkbox" id="chk-detail-line" checked style="accent-color:var(--accent);width:15px;height:15px;margin-top:2px;flex-shrink:0"/>
           <div>
-            <div style="font-size:.9rem;font-weight:600;color:var(--text)">project.detailed.item.line</div>
-            <div style="font-size:.78rem;color:var(--muted);margin-top:2px">Client BOQ — line items billed to the project owner (quantities, unit cost, total cost)</div>
+            <div style="font-size:.8rem;font-weight:700;color:var(--text);line-height:1.3">project.detailed<br>.item.line</div>
+            <div style="font-size:.72rem;color:var(--muted);margin-top:3px;line-height:1.4">Client BOQ line items (qty, unit cost, total)</div>
           </div>
         </label>
 
-        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;background:rgba(124,106,247,.06);border:1px solid rgba(124,106,247,.2);border-radius:8px;padding:10px 14px">
-          <input type="checkbox" id="chk-main-line" checked style="accent-color:var(--accent);width:16px;height:16px;margin-top:2px;flex-shrink:0"/>
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;background:rgba(124,106,247,.07);border:1px solid rgba(124,106,247,.22);border-radius:8px;padding:8px 10px">
+          <input type="checkbox" id="chk-main-line" checked style="accent-color:var(--accent);width:15px;height:15px;margin-top:2px;flex-shrink:0"/>
           <div>
-            <div style="font-size:.9rem;font-weight:600;color:var(--text)">project.main.item.line</div>
-            <div style="font-size:.78rem;color:var(--muted);margin-top:2px">BOQ Section Headers — category / division rows that group the detailed lines (name only)</div>
+            <div style="font-size:.8rem;font-weight:700;color:var(--text);line-height:1.3">project.main<br>.item.line</div>
+            <div style="font-size:.72rem;color:var(--muted);margin-top:3px;line-height:1.4">BOQ section / division headers (name only)</div>
           </div>
         </label>
 
-        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.18);border-radius:8px;padding:10px 14px">
-          <input type="checkbox" id="chk-boq-line" style="accent-color:var(--accent);width:16px;height:16px;margin-top:2px;flex-shrink:0"/>
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.18);border-radius:8px;padding:8px 10px">
+          <input type="checkbox" id="chk-boq-line" style="accent-color:var(--accent);width:15px;height:15px;margin-top:2px;flex-shrink:0"/>
           <div>
-            <div style="font-size:.9rem;font-weight:600;color:var(--text)">project.subcontracting.boq.line <span style="color:var(--amber);font-size:.75rem;font-weight:400">(optional)</span></div>
-            <div style="font-size:.78rem;color:var(--muted);margin-top:2px">Subcontractor BOQ — vendor scope items; only enable if this document is a <strong style="color:var(--amber)">subcontracting</strong> BOQ template</div>
+            <div style="font-size:.8rem;font-weight:700;color:var(--text);line-height:1.3">project.subcontracting<br>.boq.line <span style="color:var(--amber);font-weight:400;font-size:.7rem">(optional)</span></div>
+            <div style="font-size:.72rem;color:var(--muted);margin-top:3px;line-height:1.4">Subcontractor scope — only if this is a subcontracting BOQ</div>
           </div>
         </label>
 
@@ -221,7 +221,10 @@ select:focus, input:focus { border-color: var(--accent); }
 
   <!-- ── Step 2: Column Mapping ── -->
   <div id="step2" class="card hidden">
-    <h3>Step 2 — Column Mapping  <span id="total-rows-badge" class="badge badge-green"></span>  <span id="map-summary" style="color:var(--green);font-size:.8rem;font-weight:400"></span></h3>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <h3 style="margin:0">Step 2 — Column Mapping  <span id="total-rows-badge" class="badge badge-green"></span>  <span id="map-summary" style="color:var(--green);font-size:.8rem;font-weight:400"></span></h3>
+      <span id="proj-bar-2" style="display:inline-flex;align-items:center;gap:5px;background:rgba(124,106,247,.12);border:1px solid rgba(124,106,247,.3);border-radius:6px;padding:3px 10px;font-size:.78rem;color:var(--accent2);font-weight:600"></span>
+    </div>
     <p style="color:var(--muted);font-size:.85rem;margin-bottom:14px">AI + keyword mapping auto-detected below. Each dropdown shows all BOQ model fields grouped by model. Adjust if needed, then click Continue.</p>
     <table class="map-table" id="map-table">
       <thead><tr><th>#</th><th>Excel Column Header</th><th>Odoo Field</th><th>Sample Value</th></tr></thead>
@@ -235,7 +238,10 @@ select:focus, input:focus { border-color: var(--accent); }
 
   <!-- ── Step 3: Preview ── -->
   <div id="step3" class="card hidden">
-    <h3>Step 3 — Preview  <span id="preview-count" class="badge badge-amber"></span></h3>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <h3 style="margin:0">Step 3 — Preview  <span id="preview-count" class="badge badge-amber"></span></h3>
+      <span id="proj-bar-3" style="display:inline-flex;align-items:center;gap:5px;background:rgba(124,106,247,.12);border:1px solid rgba(124,106,247,.3);border-radius:6px;padding:3px 10px;font-size:.78rem;color:var(--accent2);font-weight:600"></span>
+    </div>
     <p style="color:var(--muted);font-size:.85rem;margin-bottom:14px">Showing first 20 rows with mapped columns. Rows without a description are skipped.</p>
     <div class="preview-wrap">
       <table class="preview-table" id="preview-table">
@@ -253,7 +259,10 @@ select:focus, input:focus { border-color: var(--accent); }
 
   <!-- ── Step 4: Result ── -->
   <div id="step4" class="card hidden">
-    <h3>Step 4 — Import Complete</h3>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <h3 style="margin:0">Step 4 — Import Complete</h3>
+      <span id="proj-bar-4" style="display:inline-flex;align-items:center;gap:5px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:6px;padding:3px 10px;font-size:.78rem;color:var(--green);font-weight:600"></span>
+    </div>
     <div id="result-box"></div>
     <div class="mt20 gap12">
       <button class="btn btn-primary" onclick="location.reload()">Import Another File</button>
@@ -317,6 +326,15 @@ function goStep(n) {
     ind.classList.remove('active','done');
     if (i < n) ind.classList.add('done');
     else if (i === n) ind.classList.add('active');
+  });
+  // Show selected project name in steps 2-4
+  const sel = document.getElementById('project-select');
+  const projName = sel && sel.selectedIndex > 0
+    ? sel.options[sel.selectedIndex].text
+    : '';
+  [2,3,4].forEach(i => {
+    const bar = document.getElementById('proj-bar-' + i);
+    if (bar) bar.textContent = projName ? '📁 ' + projName : '';
   });
   clearAlert();
 }
