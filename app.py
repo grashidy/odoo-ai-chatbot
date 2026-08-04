@@ -1136,6 +1136,51 @@ def whatsapp_webhook():
     return _twiml()
 
 
+@app.route("/wa-test", methods=["GET"])
+def wa_test():
+    """Diagnostic: check Twilio credentials and optionally send a test message."""
+    sid   = os.environ.get("TWILIO_ACCOUNT_SID", "")
+    token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    from_ = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
+    groq  = bool(DEFAULT_GROQ_KEY)
+    odoo  = bool(ODOO_API_KEY)
+    to_   = request.args.get("to", "")   # ?to=whatsapp:+20XXXXXXXXX
+
+    result = {
+        "TWILIO_ACCOUNT_SID":   sid[:8] + "..." if sid else "❌ NOT SET",
+        "TWILIO_AUTH_TOKEN":    "✅ set" if token else "❌ NOT SET",
+        "TWILIO_WHATSAPP_FROM": from_ or "❌ NOT SET",
+        "GROQ_API_KEY":         "✅ set" if groq else "❌ NOT SET",
+        "ODOO_API_KEY":         "✅ set" if odoo else "❌ NOT SET",
+        "webhook_url":          request.host_url.rstrip("/") + "/whatsapp",
+    }
+
+    if to_ and sid and token and _requests:
+        if not from_.startswith("whatsapp:"):
+            from_ = "whatsapp:" + from_
+        if not to_.startswith("whatsapp:"):
+            to_ = "whatsapp:" + to_
+        auth = base64.b64encode(f"{sid}:{token}".encode()).decode()
+        url  = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
+        try:
+            r = _requests.post(url,
+                headers={"Authorization": f"Basic {auth}"},
+                data={"From": from_, "To": to_, "Body": "🤖 Test from Odoo AI Assistant — connection OK!"},
+                timeout=15)
+            result["test_send"] = {"status": r.status_code, "body": r.text[:400]}
+        except Exception as e:
+            result["test_send"] = {"error": str(e)}
+    elif to_:
+        result["test_send"] = "❌ Cannot send — missing Twilio credentials or requests library"
+
+    return jsonify(result)
+
+
+@app.route("/whatsapp", methods=["GET"])
+def whatsapp_info():
+    return jsonify({"status": "ok", "webhook": "POST /whatsapp", "hint": "This endpoint accepts POST from Twilio only."})
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
