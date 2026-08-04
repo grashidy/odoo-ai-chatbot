@@ -1,7 +1,11 @@
 import xmlrpc.client, json, os, time, re, logging, threading, io, base64, socket
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
-from groq import Groq
+from openai import OpenAI
+try:
+    from groq import Groq as _GroqClient  # kept only for Whisper voice transcription
+except ImportError:
+    _GroqClient = None
 try:
     import requests as _requests
 except ImportError:
@@ -12,12 +16,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 # Global socket timeout prevents xmlrpc calls from hanging indefinitely
 socket.setdefaulttimeout(55)
 
-# ── Load Groq key: env var (cloud) → .groq_key file (local) ───────────────────
+# ── AI provider: Gemini (primary) with Groq fallback for Whisper ───────────────
+GEMINI_API_KEY  = os.environ.get("GEMINI_API_KEY", "").strip()
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+AI_MODEL        = "gemini-2.0-flash"
+
+# Groq key — only used for Whisper audio transcription
 _key_file = Path(__file__).parent / ".groq_key"
 DEFAULT_GROQ_KEY = (
     os.environ.get("GROQ_API_KEY", "").strip()
     or (_key_file.read_text(encoding="utf-8").strip() if _key_file.exists() else "")
 )
+
+def _make_chat_client(override_key=None):
+    """Return (OpenAI-compatible client, model_name) for chat."""
+    key = override_key or GEMINI_API_KEY or DEFAULT_GROQ_KEY
+    if not key:
+        return None, None
+    if GEMINI_API_KEY and override_key in (None, GEMINI_API_KEY):
+        return OpenAI(api_key=key, base_url=GEMINI_BASE_URL), AI_MODEL
+    # Fallback to Groq-compatible if no Gemini key
+    return OpenAI(api_key=key, base_url="https://api.groq.com/openai/v1"), "llama-3.1-8b-instant"
 
 # ── Odoo connection ────────────────────────────────────────────────────────────
 # Set ODOO_API_KEY as a Railway environment variable (Variables tab) — never hardcode it.
@@ -431,12 +450,11 @@ def index():
 def chat():
     data = request.json
     history = data.get("messages", [])
-    groq_key = data.get("api_key", "").strip() or DEFAULT_GROQ_KEY
+    override_key = data.get("api_key", "").strip() or None
+    client, _ai_model = _make_chat_client(override_key)
 
-    if not groq_key:
-        return jsonify({"error": "Groq API key is required. Click ⚙ and enter your key."}), 400
-
-    client = Groq(api_key=groq_key)
+    if not client:
+        return jsonify({"error": "AI API key is required. Set GEMINI_API_KEY in Railway Variables."}), 400
 
     def generate():
         try:
@@ -466,7 +484,7 @@ def chat():
                 def _groq_call():
                     try:
                         call_kw = dict(
-                            model="llama-3.1-8b-instant",
+                            model=_ai_model,
                             messages=messages,
                             max_tokens=1800,
                             temperature=0.1,
@@ -633,7 +651,7 @@ def chat():
                     def _final_call():
                         try:
                             _fr[0] = client.chat.completions.create(
-                                model="llama-3.1-8b-instant",
+                                model=_ai_model,
                                 messages=messages,
                                 max_tokens=1800,
                                 temperature=0.1,
@@ -756,7 +774,7 @@ def parse_boq():
         return jsonify({"error": "No file uploaded"}), 400
 
     f = request.files["file"]
-    groq_key = request.form.get("api_key", "").strip() or DEFAULT_GROQ_KEY
+    _boq_override = request.form.get("api_key", "").strip() or None
 
     try:
         import openpyxl
@@ -813,9 +831,9 @@ def parse_boq():
             "Skip columns that don't map to any field (totals, subtotals, row numbers)."
         )
         try:
-            client_tmp = Groq(api_key=groq_key)
-            resp = client_tmp.chat.completions.create(
-                model="llama-3.1-8b-instant",
+            _boq_client, _boq_model = _make_chat_client(_boq_override)
+            resp = _boq_client.chat.completions.create(
+                model=_boq_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=400, temperature=0,
             )
@@ -1009,26 +1027,23 @@ def _split_whatsapp(text, max_len=4000):
 
 def _run_ai_sync(user_text):
     """Run the full AI + Odoo tool-call loop synchronously. Returns answer text."""
-    groq_key = DEFAULT_GROQ_KEY
-    if not groq_key:
-        return "❌ Groq API key not configured on the server."
+    client, _model = _make_chat_client()
+    if not client:
+        return "❌ AI API key not configured on the server."
 
-    client  = Groq(api_key=groq_key)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user",   "content": user_text},
     ]
 
     for _ in range(3):
+        _has_results = any(m.get("role") == "tool" for m in messages)
+        call_kw = dict(model=_model, messages=messages, max_tokens=1800, temperature=0.1)
+        if not _has_results:
+            call_kw["tools"] = TOOLS
+            call_kw["tool_choice"] = "auto"
         try:
-            resp = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=messages,
-                tools=TOOLS,
-                tool_choice="auto",
-                max_tokens=2048,
-                temperature=0.1,
-            )
+            resp = client.chat.completions.create(**call_kw)
         except Exception as e:
             return f"❌ AI error: {str(e)[:200]}"
 
@@ -1173,6 +1188,7 @@ def wa_test():
     sid   = os.environ.get("TWILIO_ACCOUNT_SID", "")
     token = os.environ.get("TWILIO_AUTH_TOKEN", "")
     from_ = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
+    gemini = bool(GEMINI_API_KEY)
     groq  = bool(DEFAULT_GROQ_KEY)
     odoo  = bool(ODOO_API_KEY)
     to_   = request.args.get("to", "")   # ?to=whatsapp:+20XXXXXXXXX
@@ -1181,7 +1197,8 @@ def wa_test():
         "TWILIO_ACCOUNT_SID":   sid[:8] + "..." if sid else "❌ NOT SET",
         "TWILIO_AUTH_TOKEN":    "✅ set" if token else "❌ NOT SET",
         "TWILIO_WHATSAPP_FROM": from_ or "❌ NOT SET",
-        "GROQ_API_KEY":         "✅ set" if groq else "❌ NOT SET",
+        "GEMINI_API_KEY":        "✅ set" if gemini else "❌ NOT SET",
+        "GROQ_API_KEY (Whisper)": "✅ set" if groq else "⚠️ not set (voice only)",
         "ODOO_API_KEY":         "✅ set" if odoo else "❌ NOT SET",
         "webhook_url":          request.host_url.rstrip("/") + "/whatsapp",
     }
