@@ -703,25 +703,26 @@ def _parse_boq_impl():
     try:
         import openpyxl
         raw_bytes = f.read()
+        # Single open — use max_row metadata (instant, no row iteration) to pick sheet
         wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
-        # Pick the sheet with the most non-empty rows (handles multi-sheet BOQ files)
-        best_ws, best_count = None, 0
+        best_ws = wb.active.title if wb.active else (wb.sheetnames[0] if wb.sheetnames else None)
+        best_count = 0
         for sname in wb.sheetnames:
             ws_try = wb[sname]
-            count = sum(
-                1 for row in ws_try.iter_rows(values_only=True)
-                if any(c is not None and str(c).strip() for c in row)
-            )
+            count = ws_try.max_row or 0  # reads XML metadata instantly, no row iteration
             if count > best_count:
                 best_count, best_ws = count, sname
-        wb.close()
-        wb2 = openpyxl.load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
-        ws = wb2[best_ws] if best_ws else wb2.active
+        ws = wb[best_ws] if best_ws else wb.active
         if ws is None:
-            wb2.close()
+            wb.close()
             return jsonify({"error": "Could not read any sheet from the Excel file"}), 400
-        raw_rows = list(ws.iter_rows(values_only=True))
-        wb2.close()
+        # Read up to 600 rows (header search + up to 300 data rows with buffer)
+        raw_rows = []
+        for row in ws.iter_rows(values_only=True):
+            raw_rows.append(row)
+            if len(raw_rows) >= 600:
+                break
+        wb.close()
     except Exception as e:
         return jsonify({"error": f"Failed to read Excel file: {e}"}), 400
 
