@@ -178,16 +178,32 @@ def _coerce_list(raw):
 _MAX_RESULT_CHARS  = 12000  # max total chars returned to AI per tool call
 _MAX_FIELD_CHARS   = 180    # max chars for any single string field value (long Arabic names)
 
+# Correct Odoo's wrong Arabic accounting translations before sending to AI
+_ACCOUNTING_TERM_MAP = {
+    "مستصلح":       "مُسوَّاة",       # settled advance payment (Odoo mistranslates "settled" as "مستصلح")
+    "مستصلحة":      "مُسوَّاة",
+    "تسوية":        "مُسوَّاة",       # sometimes shown as تسوية
+    "في التنفيذ":   "جارٍ",           # "run" state → جارٍ is more standard in Arabic accounting
+    "مقفل":         "مُقفَّل",        # normalise spelling
+}
+
+def _fix_accounting_terms(val):
+    """Replace Odoo's incorrect Arabic field translations with proper accounting terms."""
+    if isinstance(val, str):
+        return _ACCOUNTING_TERM_MAP.get(val, val)
+    return val
+
 def _trim_long_fields(rec):
-    """Trim individual string fields that are very long (e.g. long Arabic item descriptions)."""
+    """Trim long strings and fix incorrect Odoo Arabic accounting translations."""
     if not isinstance(rec, dict):
         return rec
     out = {}
     for k, v in rec.items():
-        if isinstance(v, str) and len(v) > _MAX_FIELD_CHARS:
-            out[k] = v[:_MAX_FIELD_CHARS] + '…'
-        else:
-            out[k] = v
+        if isinstance(v, str):
+            v = _fix_accounting_terms(v)
+            if len(v) > _MAX_FIELD_CHARS:
+                v = v[:_MAX_FIELD_CHARS] + '…'
+        out[k] = v
     return out
 
 def _truncate_result(text):
@@ -198,7 +214,7 @@ def _truncate_result(text):
 def _flatten_m2o(val):
     """Convert Odoo many2one [id, "Name"] tuples to just the display name string."""
     if isinstance(val, (list, tuple)) and len(val) == 2 and isinstance(val[0], int) and isinstance(val[1], str):
-        return val[1]
+        return _fix_accounting_terms(val[1])
     return val
 
 def _flatten_record(rec):
@@ -261,7 +277,8 @@ def run_tool(name, args):
                     elif k == "__domain":
                         continue
                     else:
-                        item[k] = _flatten_m2o(v)
+                        v2 = _flatten_m2o(v)
+                        item[k] = _fix_accounting_terms(v2) if isinstance(v2, str) else v2
                 cleaned.append(item)
             return _truncate_result(json.dumps(cleaned, ensure_ascii=False, default=str))
 
