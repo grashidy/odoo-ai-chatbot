@@ -276,6 +276,7 @@ def run_tool(name, args):
 
 # ── System prompt ──────────────────────────────────────────────────────────────
 def get_system_prompt():
+    from datetime import date as _date
     today_date = _date.today().isoformat()   # e.g. "2026-08-05"
     return f"""You are an AI assistant for Odoo 18 (Real Estate, Construction, HR, Procurement). Reply in the same language as the user (Arabic or English).
 
