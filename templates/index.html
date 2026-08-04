@@ -457,17 +457,19 @@ header::after {
 }
 /* Row-number column */
 .rm-rn-h {
-  width: 38px; min-width: 38px;
+  width: 28px; min-width: 28px; max-width: 28px;
   text-align: center !important;
   color: rgba(184,130,10,0.55) !important;
   font-size: 10px !important;
+  padding: 6px 4px !important;
 }
 .rm-rn {
   text-align: center !important;
   color: #3a6080; font-size: 11px; font-weight: 700;
   background: rgba(184,130,10,0.03) !important;
   border-right: 1px solid rgba(184,130,10,0.13) !important;
-  min-width: 38px; width: 38px;
+  min-width: 28px; width: 28px; max-width: 28px;
+  padding: 6px 4px !important;
   font-variant-numeric: tabular-nums;
 }
 .rm-table[dir="rtl"] .rm-rn {
@@ -1284,9 +1286,14 @@ function _initModuleChart(moduleId, headers, rows) {
   }
 
   // Doughnut for: synthetic/text-only, or single numeric column with ≤ 10 rows
-  const useDoughnut = isSynthetic || (valCols.length === 1 && rows.length <= 10);
-  const chartType   = useDoughnut ? 'doughnut' : 'bar';
-  const smallFont   = rows.length > 8;
+  const useDoughnut  = isSynthetic || (valCols.length === 1 && rows.length <= 10);
+  const isGroupedBar = !useDoughnut && valCols.length > 1;
+  const chartType    = useDoughnut ? 'doughnut' : 'bar';
+  const smallFont    = rows.length > 8;
+
+  // Detect financial Y-axis (cost / amount columns)
+  const finRe = /price|cost|total|amount|value|balance|due|مبلغ|قيمة|سعر|إجمالي|رصيد/i;
+  const isFinancial = valCols.some(ci => finRe.test(headers[ci] || ''));
 
   new Chart(canvas, {
     type: chartType,
@@ -1295,31 +1302,41 @@ function _initModuleChart(moduleId, headers, rows) {
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: {
-          display: useDoughnut,
-          position: 'right',
+          display: useDoughnut || isGroupedBar,
+          position: useDoughnut ? 'right' : 'top',
           labels: {
-            color: '#527fa8',
+            color: '#8ab8d6',
             font: { size: smallFont ? 9 : 10.5, family: 'Inter' },
             padding: smallFont ? 5 : 12, boxWidth: 10
           }
         },
         tooltip: {
           backgroundColor: '#091e38', borderColor: '#1a4a70', borderWidth: 1,
-          titleColor: '#c8ddf0', bodyColor: '#527fa8', padding: 8,
+          titleColor: '#c8ddf0', bodyColor: '#8ab8d6', padding: 8,
           callbacks: {
             label: ctx => {
               const raw = ctx.parsed.y ?? ctx.parsed;
               if (isSynthetic) return ' ' + ctx.label;
-              return ' ' + Number(raw).toLocaleString();
+              const num = Number(raw);
+              const fmt = _fmtAxis(num) + (isFinancial && num >= 1000 ? '' : num < 1000 ? num.toLocaleString() : '');
+              const egp = isFinancial ? ' EGP' : '';
+              return ` ${ctx.dataset.label || ''}: ${_fmtAxis(num)}${egp} (${num.toLocaleString()})`;
             }
           }
         }
       },
       scales: chartType === 'bar' ? {
-        x: { ticks: { color: '#2d4f6e', font: { size: 10 }, maxRotation: 35 }, grid: { color: 'rgba(16,48,78,0.6)' } },
+        x: {
+          ticks: { color: '#527fa8', font: { size: smallFont ? 9 : 10 }, maxRotation: 40, autoSkip: false },
+          grid: { color: 'rgba(16,48,78,0.5)' }
+        },
         y: {
-          ticks: { color: '#2d4f6e', font: { size: 10 }, callback: v => _fmtAxis(v) },
-          grid: { color: 'rgba(16,48,78,0.6)' }, beginAtZero: true
+          ticks: { color: '#527fa8', font: { size: 10 }, callback: v => _fmtAxis(v) },
+          grid: { color: 'rgba(16,48,78,0.5)' },
+          beginAtZero: true,
+          title: isFinancial
+            ? { display: true, text: 'Amount (EGP)', color: '#527fa8', font: { size: 10 } }
+            : { display: false }
         }
       } : {}
     }
