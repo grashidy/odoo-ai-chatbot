@@ -175,7 +175,20 @@ def _coerce_list(raw):
         return [raw] if raw else []
     return []
 
-_MAX_RESULT_CHARS = 2000  # truncate giant tool results to stay under TPM limits
+_MAX_RESULT_CHARS  = 12000  # max total chars returned to AI per tool call
+_MAX_FIELD_CHARS   = 180    # max chars for any single string field value (long Arabic names)
+
+def _trim_long_fields(rec):
+    """Trim individual string fields that are very long (e.g. long Arabic item descriptions)."""
+    if not isinstance(rec, dict):
+        return rec
+    out = {}
+    for k, v in rec.items():
+        if isinstance(v, str) and len(v) > _MAX_FIELD_CHARS:
+            out[k] = v[:_MAX_FIELD_CHARS] + '…'
+        else:
+            out[k] = v
+    return out
 
 def _truncate_result(text):
     if len(text) > _MAX_RESULT_CHARS:
@@ -207,7 +220,7 @@ def run_tool(name, args):
             if args.get("order"):
                 kwargs["order"] = args["order"]
             results = odoo_call(args["model"], "search_read", [domain], kwargs)
-            flat = [_flatten_record(r) for r in results]
+            flat = [_trim_long_fields(_flatten_record(r)) for r in results]
             return _truncate_result(json.dumps(flat, ensure_ascii=False, default=str))
 
         elif name == "odoo_count":

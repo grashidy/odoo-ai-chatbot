@@ -247,6 +247,37 @@ header::after {
 .cat-card.c-plan   { --cat-color: #0b8a7c; }
 .cat-card.c-po     { --cat-color: #6b3fa0; }
 .cat-card.c-hr     { --cat-color: #b8306a; }
+.cat-card.c-ctr    { --cat-color: #9b5de5; }
+.cat-card.c-bld    { --cat-color: #3a7bd5; }
+.cat-card.c-sup    { --cat-color: #0b8a7c; }
+
+/* ── Package/Module tabs (landing page) ─────────────────────── */
+.pkg-tab-bar {
+  display: flex; gap: 2px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.pkg-tab-btn {
+  padding: 10px 20px;
+  font-size: 13px; font-weight: 600;
+  color: var(--text3);
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+  transition: color .15s, background .15s, border-color .15s;
+  white-space: nowrap;
+  font-family: inherit;
+  letter-spacing: 0.1px;
+}
+.pkg-tab-btn:hover { color: var(--text2); background: rgba(255,255,255,0.03); }
+.pkg-tab-btn.active { color: var(--gold2); border-bottom-color: var(--gold); background: rgba(184,130,10,0.06); }
+.pkg-pane { display: none; width: 100%; }
+.pkg-pane.active { display: block; }
 
 .cat-qs { padding: 8px 10px 10px; }
 
@@ -585,156 +616,288 @@ header::after {
   <div class="welcome-hero">
     <div class="hero-icon-wrap">🏗️</div>
     <h2>What would you like to know?</h2>
-    <p class="sub-en">Ask about construction BOQ, subcontracts, real estate, purchases, or HR — in Arabic or English.</p>
-    <p class="sub-ar">اسأل عن المقايسات، عقود الباطن، العقارات، المشتريات أو الموارد البشرية</p>
+    <p class="sub-en">Select a module below, then click any question — or ask in Arabic or English.</p>
+    <p class="sub-ar">اختر الوحدة أدناه ثم انقر على السؤال أو اكتب سؤالك بالعربية أو الإنجليزية</p>
   </div>
-  <div class="cat-grid">
 
-    <!-- Real Estate -->
-    <div class="cat-card c-re">
-      <div class="cat-accent-bar"></div>
-      <div class="cat-card-top">
-        <div class="cat-icon-box">🏢</div>
-        <div>
-          <div class="cat-name">Real Estate</div>
-          <div class="cat-model">project.rs.unit · rs.building · rs.phase</div>
-        </div>
-      </div>
-      <div class="cat-qs">
-        <div class="suggestion" onclick="suggest(this)">How many units are available in each project with their prices?</div>
-        <div class="suggestion ar" onclick="suggest(this)">ما هي الوحدات المتاحة للبيع مع مساحاتها وأسعارها؟</div>
-        <div class="suggestion" onclick="suggest(this)">Show contracted units with client names and sale prices</div>
-        <div class="suggestion ar" onclick="suggest(this)">اعرض الوحدات مصنفةً حسب الحالة مع عدد كل حالة</div>
-      </div>
-    </div>
-
-    <!-- Client BOQ -->
-    <div class="cat-card c-boq">
-      <div class="cat-accent-bar"></div>
-      <div class="cat-card-top">
-        <div class="cat-icon-box">📐</div>
-        <div>
-          <div class="cat-name">Client BOQ Lines</div>
-          <div class="cat-model">project.detailed.item.line · Owner Billing</div>
-        </div>
-      </div>
-      <div class="cat-qs">
-        <div class="suggestion" onclick="suggest(this)">Show all client-facing BOQ lines per project with quantities and unit costs</div>
-        <div class="suggestion ar" onclick="suggest(this)">اعرض بنود مقايسة المشروع للعميل مع الكميات والأسعار</div>
-        <div class="suggestion" onclick="suggest(this)">Which BOQ items have the highest unit cost across all projects?</div>
-        <div class="suggestion ar" onclick="suggest(this)">اعرض إجمالي قيمة المقايسة لكل مشروع مصنفاً حسب فئة الأعمال الرئيسية</div>
-      </div>
-    </div>
-
-    <!-- Subcontracting BOQ -->
-    <div class="cat-card c-sub">
-      <div class="cat-accent-bar"></div>
-      <div class="cat-card-top">
-        <div class="cat-icon-box">🔧</div>
-        <div>
-          <div class="cat-name">Subcontracting BOQ</div>
-          <div class="cat-model">project.subcontracting.boq.line · Vendor Scope</div>
-        </div>
-      </div>
-      <div class="cat-qs">
-        <div class="suggestion" onclick="suggest(this)">Show all BOQ contracts with subcontractors and total values per project</div>
-        <div class="suggestion" onclick="suggest(this)">Which BOQ lines have billed quantity exceeding planned quantity?</div>
-        <div class="suggestion ar" onclick="suggest(this)">ما هي بنود الباطن التي تجاوز المنفذ منها الكميات المخططة؟</div>
-        <div class="suggestion" onclick="suggest(this)">Show subcontracting BOQ lines with remaining quantities per project</div>
-      </div>
-    </div>
-
-    <!-- Contractor Payments -->
-    <div class="cat-card c-pay">
-      <div class="cat-accent-bar"></div>
-      <div class="cat-card-top">
-        <div class="cat-icon-box">💰</div>
-        <div>
-          <div class="cat-name">Contractor Payments</div>
-          <div class="cat-model">construction.advance.payment · Advances</div>
-        </div>
-      </div>
-      <div class="cat-qs">
-        <div class="suggestion ar" onclick="suggest(this)">اعرض المدفوعات المقدمة للمقاولين مع حالة كل دفعة</div>
-        <div class="suggestion" onclick="suggest(this)">Show subcontractor contracts vs advance payments balance per contractor</div>
-        <div class="suggestion" onclick="suggest(this)">Which contractors have unpaid or outstanding advance payments?</div>
-        <div class="suggestion ar" onclick="suggest(this)">كم إجمالي المدفوعات المقدمة لكل مقاول مقارنةً بقيمة عقده؟</div>
-      </div>
-    </div>
-
-    <!-- Construction Projects -->
-    <div class="cat-card c-proj">
-      <div class="cat-accent-bar"></div>
-      <div class="cat-card-top">
-        <div class="cat-icon-box">🏗️</div>
-        <div>
-          <div class="cat-name">Construction Projects</div>
-          <div class="cat-model">project.project · All Projects</div>
-        </div>
-      </div>
-      <div class="cat-qs">
-        <div class="suggestion" onclick="suggest(this)">List all construction projects with their status and assigned manager</div>
-        <div class="suggestion ar" onclick="suggest(this)">اعرض قائمة المشاريع الإنشائية مع حالة كل مشروع ومديره</div>
-        <div class="suggestion" onclick="suggest(this)">How many active construction projects are there and what are their names?</div>
-        <div class="suggestion ar" onclick="suggest(this)">ما هي المشاريع التي لديها تواريخ انتهاء قريبة أو متأخرة؟</div>
-      </div>
-    </div>
-
-    <!-- Construction Plans -->
-    <div class="cat-card c-plan">
-      <div class="cat-accent-bar"></div>
-      <div class="cat-card-top">
-        <div class="cat-icon-box">📅</div>
-        <div>
-          <div class="cat-name">Construction Plans</div>
-          <div class="cat-model">main.project.plan.operation · Milestones</div>
-        </div>
-      </div>
-      <div class="cat-qs">
-        <div class="suggestion ar" onclick="suggest(this)">اعرض خطة المشروع الرئيسية بالمراحل ونسبة الإنجاز لكل مرحلة</div>
-        <div class="suggestion" onclick="suggest(this)">Show construction milestones with planned vs actual dates and progress %</div>
-        <div class="suggestion" onclick="suggest(this)">Which construction milestones or operations are delayed or behind schedule?</div>
-        <div class="suggestion ar" onclick="suggest(this)">اعرض العمليات الفرعية لكل مرحلة مع مواعيدها وحالة التنفيذ</div>
-      </div>
-    </div>
-
-    <!-- Purchase Orders -->
-    <div class="cat-card c-po">
-      <div class="cat-accent-bar"></div>
-      <div class="cat-card-top">
-        <div class="cat-icon-box">🛒</div>
-        <div>
-          <div class="cat-name">Purchase Orders</div>
-          <div class="cat-model">purchase.order · Suppliers · Spending</div>
-        </div>
-      </div>
-      <div class="cat-qs">
-        <div class="suggestion" onclick="suggest(this)">Which suppliers have the highest total confirmed purchase order value?</div>
-        <div class="suggestion ar" onclick="suggest(this)">اعرض طلبات الشراء المؤكدة مع إجمالي قيمتها مرتبةً تنازلياً</div>
-        <div class="suggestion" onclick="suggest(this)">Show total spending per supplier for confirmed and done POs</div>
-        <div class="suggestion" onclick="suggest(this)">List all confirmed purchase orders with vendor names and amounts</div>
-      </div>
-    </div>
-
-    <!-- HR -->
-    <div class="cat-card c-hr">
-      <div class="cat-accent-bar"></div>
-      <div class="cat-card-top">
-        <div class="cat-icon-box">👥</div>
-        <div>
-          <div class="cat-name">HR &amp; Employees</div>
-          <div class="cat-model">hr.employee · Departments · Contacts</div>
-        </div>
-      </div>
-      <div class="cat-qs">
-        <div class="suggestion ar" onclick="suggest(this)">كم عدد الموظفين في كل إدارة؟ اعرض تفصيلاً بالأرقام</div>
-        <div class="suggestion" onclick="suggest(this)">List all employees with their job titles, departments and work phones</div>
-        <div class="suggestion ar" onclick="suggest(this)">اعرض قائمة الموظفين مع أرقام هواتفهم مرتبةً حسب الإدارة</div>
-        <div class="suggestion" onclick="suggest(this)">Show employee count grouped by department with a chart</div>
-      </div>
-    </div>
-
+  <!-- ── Module tab bar ── -->
+  <div class="pkg-tab-bar">
+    <button class="pkg-tab-btn" data-tab="construction">🏗️ Construction ERP</button>
+    <button class="pkg-tab-btn" data-tab="realestate">🏢 Real Estate</button>
+    <button class="pkg-tab-btn" data-tab="hr">👥 HR &amp; Employees</button>
+    <button class="pkg-tab-btn" data-tab="procurement">🛒 Procurement</button>
   </div>
+
+  <!-- ══════════════════════════════════════════════
+       CONSTRUCTION ERP tab
+  ══════════════════════════════════════════════ -->
+  <div class="pkg-pane" id="pkg-construction">
+    <div class="cat-grid">
+
+      <!-- Projects & Status -->
+      <div class="cat-card c-proj">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🏗️</div>
+          <div>
+            <div class="cat-name">Projects &amp; Status</div>
+            <div class="cat-model">project.project · All Projects</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">List all construction projects with their status and assigned manager</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض قائمة المشاريع الإنشائية مع حالة كل مشروع ومديره</div>
+          <div class="suggestion" onclick="suggest(this)">What is the planned vs actual cost for each construction project?</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض إجمالي التكلفة المخططة والفعلية لكل مشروع</div>
+          <div class="suggestion" onclick="suggest(this)">How many active construction projects are there and what are their names?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي المشاريع التي لديها تواريخ انتهاء قريبة أو متأخرة؟</div>
+        </div>
+      </div>
+
+      <!-- Client BOQ -->
+      <div class="cat-card c-boq">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">📐</div>
+          <div>
+            <div class="cat-name">Client BOQ</div>
+            <div class="cat-model">project.detailed.item.line · Owner Billing</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show all client-facing BOQ lines per project with quantities and unit costs</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض بنود مقايسة المشروع للعميل مع الكميات والأسعار</div>
+          <div class="suggestion" onclick="suggest(this)">Which BOQ items have the highest unit cost across all projects?</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض إجمالي قيمة المقايسة لكل مشروع مصنفاً حسب فئة الأعمال الرئيسية</div>
+          <div class="suggestion" onclick="suggest(this)">What is the total BOQ value for each construction project?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي أعلى بنود المقايسة قيمةً في المشاريع؟</div>
+        </div>
+      </div>
+
+      <!-- Subcontracting BOQ -->
+      <div class="cat-card c-sub">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🔧</div>
+          <div>
+            <div class="cat-name">Subcontracting BOQ</div>
+            <div class="cat-model">project.subcontracting.boq.line · Vendor Scope</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show subcontracting BOQ lines with remaining quantities per project</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي بنود الباطن التي تجاوز المنفذ منها الكميات المخططة؟</div>
+          <div class="suggestion" onclick="suggest(this)">Which subcontracting BOQ lines have billed quantity exceeding planned quantity?</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض كميات بنود الباطن مع المنفذ والمتبقي لكل مشروع</div>
+          <div class="suggestion" onclick="suggest(this)">Show all subcontracting BOQ scopes across all projects</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي بنود أعمال الباطن المسندة في كل مشروع؟</div>
+        </div>
+      </div>
+
+      <!-- Subcontractor Contracts -->
+      <div class="cat-card c-ctr">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">📄</div>
+          <div>
+            <div class="cat-name">Subcontractor Contracts</div>
+            <div class="cat-model">subcontractor.contract · Contract Values</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show all subcontractor contracts with partner names and contract values</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض عقود المقاولين الباطن مع قيمة كل عقد وحالته</div>
+          <div class="suggestion" onclick="suggest(this)">What is the total subcontractor contract value per project?</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض الفرق بين قيمة عقد الباطن والمبالغ المفوترة لكل مقاول</div>
+          <div class="suggestion" onclick="suggest(this)">Which subcontractor contracts are currently running or closed?</div>
+          <div class="suggestion ar" onclick="suggest(this)">كم إجمالي قيمة العقود لكل مقاول باطن في جميع المشاريع؟</div>
+        </div>
+      </div>
+
+      <!-- Construction Plans -->
+      <div class="cat-card c-plan">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">📅</div>
+          <div>
+            <div class="cat-name">Plans &amp; Milestones</div>
+            <div class="cat-model">main.project.plan.operation · sub.project.plan.operation</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show construction milestones with planned dates per project</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض خطة المشروع الرئيسية بالمراحل ومواعيدها</div>
+          <div class="suggestion" onclick="suggest(this)">Which construction milestones or operations are behind schedule?</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض العمليات الفرعية لكل مرحلة مع مواعيدها</div>
+          <div class="suggestion" onclick="suggest(this)">List all plan types (subcontract, labor, material) for each project</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي مراحل خطة المشروع وعدد العمليات الفرعية لكل مرحلة؟</div>
+        </div>
+      </div>
+
+      <!-- Advance Payments -->
+      <div class="cat-card c-pay">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">💰</div>
+          <div>
+            <div class="cat-name">Advance Payments</div>
+            <div class="cat-model">construction.advance.payment · Advances</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion ar" onclick="suggest(this)">اعرض المدفوعات المقدمة للمقاولين مع حالة كل دفعة</div>
+          <div class="suggestion" onclick="suggest(this)">Show subcontractor contracts vs advance payments balance per contractor</div>
+          <div class="suggestion" onclick="suggest(this)">Which contractors have unpaid or outstanding advance payments?</div>
+          <div class="suggestion ar" onclick="suggest(this)">كم إجمالي المدفوعات المقدمة لكل مقاول مقارنةً بقيمة عقده؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show all advance payments grouped by status (draft, run, settled)</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض المدفوعات المقدمة للعملاء مقارنةً بمدفوعات المقاولين</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       REAL ESTATE tab
+  ══════════════════════════════════════════════ -->
+  <div class="pkg-pane" id="pkg-realestate">
+    <div class="cat-grid">
+
+      <!-- Property Units -->
+      <div class="cat-card c-re">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🏠</div>
+          <div>
+            <div class="cat-name">Property Units</div>
+            <div class="cat-model">rs.dev.unit · Sales &amp; Availability</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">How many units are available in each project with their prices?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي الوحدات المتاحة للبيع مع مساحاتها وأسعارها؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show contracted units with client names and sale prices</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض الوحدات مصنفةً حسب الحالة مع عدد كل حالة</div>
+          <div class="suggestion" onclick="suggest(this)">What is the total sold value by unit type (apartment, villa, duplex)?</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض الوحدات حسب نوع الاستخدام مع متوسط السعر</div>
+        </div>
+      </div>
+
+      <!-- Buildings & Phases -->
+      <div class="cat-card c-bld">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🏗️</div>
+          <div>
+            <div class="cat-name">Buildings &amp; Phases</div>
+            <div class="cat-model">project.rs.building · project.rs.phase</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">List all real estate buildings and their associated projects</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض مراحل التطوير العقاري مع أسماء المشاريع</div>
+          <div class="suggestion" onclick="suggest(this)">How many buildings are there per real estate project?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي مراحل التطوير وعدد الوحدات في كل مرحلة؟</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       HR & EMPLOYEES tab
+  ══════════════════════════════════════════════ -->
+  <div class="pkg-pane" id="pkg-hr">
+    <div class="cat-grid">
+
+      <!-- Employees -->
+      <div class="cat-card c-hr">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">👤</div>
+          <div>
+            <div class="cat-name">Employees</div>
+            <div class="cat-model">hr.employee · Staff Directory</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">List all employees with their job titles, departments and work phones</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض قائمة الموظفين مع أرقام هواتفهم مرتبةً حسب الإدارة</div>
+          <div class="suggestion" onclick="suggest(this)">Show employee count grouped by department with a chart</div>
+          <div class="suggestion ar" onclick="suggest(this)">كم عدد الموظفين في كل إدارة؟ اعرض تفصيلاً بالأرقام</div>
+          <div class="suggestion" onclick="suggest(this)">Which employees are assigned to which department?</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض الموظفين مع مسمياتهم الوظيفية مرتبةً حسب القسم</div>
+        </div>
+      </div>
+
+      <!-- Departments -->
+      <div class="cat-card c-hr">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🏢</div>
+          <div>
+            <div class="cat-name">Departments</div>
+            <div class="cat-model">hr.department · Org Structure</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">List all departments with their managers</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض الإدارات مع مديريها وعدد الموظفين في كل إدارة</div>
+          <div class="suggestion" onclick="suggest(this)">Which department has the most employees?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي هيكلة الأقسام الإدارية في المنظمة؟</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       PROCUREMENT tab
+  ══════════════════════════════════════════════ -->
+  <div class="pkg-pane" id="pkg-procurement">
+    <div class="cat-grid">
+
+      <!-- Purchase Orders -->
+      <div class="cat-card c-po">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🛒</div>
+          <div>
+            <div class="cat-name">Purchase Orders</div>
+            <div class="cat-model">purchase.order · Spending</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Which suppliers have the highest total confirmed purchase order value?</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض طلبات الشراء المؤكدة مع إجمالي قيمتها مرتبةً تنازلياً</div>
+          <div class="suggestion" onclick="suggest(this)">Show total spending per supplier for confirmed and done POs</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هو إجمالي قيمة المشتريات لكل مورد؟</div>
+          <div class="suggestion" onclick="suggest(this)">List all confirmed purchase orders with vendor names and amounts</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض طلبات الشراء مصنفةً حسب الحالة مع إجمالي كل فئة</div>
+        </div>
+      </div>
+
+      <!-- Suppliers -->
+      <div class="cat-card c-sup">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🏪</div>
+          <div>
+            <div class="cat-name">Suppliers &amp; Vendors</div>
+            <div class="cat-model">res.partner · Vendor Directory</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">List all active vendors/suppliers with their contact details</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض المورّدين النشطين مع بيانات التواصل الخاصة بهم</div>
+          <div class="suggestion" onclick="suggest(this)">Which suppliers are companies vs individual contacts?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي شركات الموردين المسجلة مع أرقام هواتفهم؟</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
 </template>
 
 <!-- ── Messages ───────────────────────────────────────────────────── -->
@@ -787,11 +950,29 @@ renderWelcome();
 /* ── Welcome ─────────────────────────────────────────────────────── */
 function renderWelcome() {
   const w = document.getElementById('welcome');
-  const t = document.getElementById('welcome-tpl');
-  if (w && t) {
+  const tpl = document.getElementById('welcome-tpl');
+  if (w && tpl) {
     w.style.cssText = 'max-width:1080px;margin:0 auto;width:100%;padding:4px 28px 32px;display:flex;flex-direction:column;align-items:center';
-    w.innerHTML = t.innerHTML;
+    w.innerHTML = tpl.innerHTML;
+    initWelcomeTabs();
   }
+}
+
+function initWelcomeTabs() {
+  const bar = document.querySelector('#welcome .pkg-tab-bar');
+  if (!bar) return;
+  const btns  = bar.querySelectorAll('.pkg-tab-btn');
+  const panes = document.querySelectorAll('#welcome .pkg-pane');
+  btns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      btns.forEach(b => b.classList.remove('active'));
+      panes.forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      const pane = document.getElementById('pkg-' + btn.dataset.tab);
+      if (pane) pane.classList.add('active');
+    });
+  });
+  if (btns.length > 0) btns[0].click();
 }
 
 /* ── Settings / Key ──────────────────────────────────────────────── */
