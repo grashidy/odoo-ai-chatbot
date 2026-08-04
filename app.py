@@ -639,35 +639,45 @@ def parse_boq():
         logging.exception("Unhandled error in parse_boq")
         return jsonify({"error": f"Server error: {e}"}), 500
 
+import unicodedata as _ucd
+
+def _norm_header(h):
+    """Normalize Arabic/Unicode header for reliable keyword matching."""
+    h = _ucd.normalize('NFKC', str(h))
+    # strip invisible Unicode format/control chars (RTL marks, ZWS, BOM, NBSP…)
+    h = re.sub(r'[ -​-‏‪-‮⁠-⁩﻿\xa0]+', ' ', h)
+    return h.strip().lower()
+
+# Rules: first match wins per field; Arabic chars compared after normalization
 _BOQ_KEYWORD_RULES = [
-    # (field_name, keywords_that_match_if_found_in_header_lowercase)
-    ("name",       ["البند", "بيان", "الوصف", "وصف", "description", "item desc", "task code desc",
-                    "resource desc", "work desc", "item name", "activity"]),
-    ("item_code",  ["القسم", "قسم", "كود", "رقم البند", "item code", "task code", "ref", "code",
-                    "رقم", "بند رقم"]),
-    ("quantity",   ["الكمية", "كمية", "كميه", "quantity", "qty", "كميات"]),
+    ("name",       ["البند", "بيان", "الوصف", "وصف", "description", "item desc",
+                    "task code desc", "work desc", "item name", "activity", "details"]),
+    ("item_code",  ["القسم", "قسم", "رقم البند", "رقم", "بند رقم", "item code", "item no",
+                    "task code", "section", "serial", "ref"]),
+    ("quantity",   ["الكمية", "كمية", "كميه", "كميات", "quantity", "qty"]),
     ("unit",       ["الوحدة", "وحدة", "وحده", "unit of", "uom", "task code unit"]),
-    ("unit_price", ["الفئة", "فئة", "سعر الوحدة", "سعر", "unit price", "unit rate", "rate",
-                    "price", "unit cost"]),
-    ("work_type",  ["نوع العمل", "work type", "category", "type of work"]),
+    ("unit_cost",  ["الفئة", "فئة", "سعر الوحدة", "سعر الوحده", "سعر", "rate",
+                    "unit price", "unit rate", "unit cost"]),
+    ("total_cost", ["الاجمالي", "الإجمالي", "اجمالي", "إجمالي", "المبلغ",
+                    "total", "amount", "subtotal", "total cost", "total amount"]),
+    ("work_type",  ["نوع العمل", "نوع الاعمال", "work type", "category", "type"]),
     ("notes",      ["ملاحظات", "ملاحظه", "notes", "remarks", "comments"]),
 ]
-_BOQ_SKIP_KEYWORDS = ["اجمالي", "إجمالي", "total", "subtotal", "amount", "#n/a", "cost code",
-                       "wastage", "usage", "resource code"]
+_BOQ_SKIP_KEYWORDS = ["#n/a", "cost code", "wastage", "usage", "resource code",
+                       "billed", "remain", "ok /", "ok/"]
 
 def _keyword_map_boq(headers):
     """Map column indices to BOQ field names using Arabic/English keywords."""
     result = {}
     claimed_fields = set()
     for i, h in enumerate(headers):
-        hl = h.lower().strip()
-        # skip obvious total/irrelevant columns
-        if any(kw in hl for kw in _BOQ_SKIP_KEYWORDS):
+        hl = _norm_header(h)
+        if not hl or any(kw in hl for kw in _BOQ_SKIP_KEYWORDS):
             continue
         for field, keywords in _BOQ_KEYWORD_RULES:
             if field in claimed_fields:
                 continue
-            if any(kw.lower() in hl for kw in keywords):
+            if any(_norm_header(kw) in hl for kw in keywords):
                 result[str(i)] = field
                 claimed_fields.add(field)
                 break
@@ -684,12 +694,24 @@ def _parse_boq_impl():
         import openpyxl
         raw_bytes = f.read()
         wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
-        ws = wb.active
-        if ws is None:
-            wb.close()
-            return jsonify({"error": "Could not read the active sheet from the Excel file"}), 400
-        raw_rows = list(ws.iter_rows(values_only=True))
+        # Pick the sheet with the most non-empty rows (handles multi-sheet BOQ files)
+        best_ws, best_count = None, 0
+        for sname in wb.sheetnames:
+            ws_try = wb[sname]
+            count = sum(
+                1 for row in ws_try.iter_rows(values_only=True)
+                if any(c is not None and str(c).strip() for c in row)
+            )
+            if count > best_count:
+                best_count, best_ws = count, sname
         wb.close()
+        wb2 = openpyxl.load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
+        ws = wb2[best_ws] if best_ws else wb2.active
+        if ws is None:
+            wb2.close()
+            return jsonify({"error": "Could not read any sheet from the Excel file"}), 400
+        raw_rows = list(ws.iter_rows(values_only=True))
+        wb2.close()
     except Exception as e:
         return jsonify({"error": f"Failed to read Excel file: {e}"}), 400
 
@@ -729,10 +751,12 @@ def _parse_boq_impl():
         + "\n".join(f"  {i}: {h}" for i, h in enumerate(headers))
         + f"\n\nSample row: {sample[0] if sample else []}\n\n"
         "Map each useful column INDEX to ONE of these field names:\n"
-        "  name=item description, item_code=code/ref, quantity=qty, unit=UOM, unit_price=rate/price, work_type=category, notes=remarks\n\n"
-        "Rules: map البند/description→name, الكمية/qty→quantity, الوحدة/unit→unit, الفئة/rate→unit_price, القسم/code→item_code.\n"
-        "SKIP totals (الإجمالي/total/subtotal) and #N/A columns.\n"
-        "Return ONLY a JSON object like: {\"2\": \"name\", \"3\": \"quantity\", \"4\": \"unit\", \"5\": \"unit_price\"}"
+        "  name=item description (البند), item_code=code/ref (القسم), quantity=qty (الكمية),\n"
+        "  unit=UOM (الوحدة), unit_cost=rate/price (الفئة), total_cost=total (الإجمالي),\n"
+        "  work_type=category, notes=remarks\n\n"
+        "Rules: البند/description→name, الكمية→quantity, الوحدة→unit, الفئة/rate→unit_cost, القسم/code→item_code, الإجمالي/total→total_cost.\n"
+        "SKIP #N/A, Cost Code, Usage, Wastage, Resource Code columns.\n"
+        "Return ONLY a JSON object like: {\"1\": \"item_code\", \"2\": \"name\", \"3\": \"quantity\", \"4\": \"unit\", \"5\": \"unit_cost\", \"6\": \"total_cost\"}"
     )
     try:
         _boq_client, _boq_model = _make_chat_client(_boq_override)
@@ -832,17 +856,24 @@ def import_boq():
                 continue
 
             qty        = _to_float(vals.get("quantity", 0))
-            unit_price = _to_float(vals.get("unit_price", 0))
+            unit_cost  = _to_float(vals.get("unit_cost", 0))
+            total_cost = _to_float(vals.get("total_cost", 0))
+            # Derive missing values if possible
+            if qty and unit_cost and not total_cost:
+                total_cost = qty * unit_cost
+            elif qty and total_cost and not unit_cost:
+                unit_cost = total_cost / qty
 
             if "project.subcontracting.boq.line" in models_to_import:
                 rec = {
-                    "name":             vals["name"],
-                    "project_id":       project_id,
-                    "boq_contract_id":  boq_contract_id,
+                    "name":       vals["name"],
+                    "project_id": project_id,
                 }
-                if qty:        rec["quantity"] = qty
-                if unit_price: rec["boq_cost"]  = unit_price
+                if boq_contract_id: rec["boq_contract_id"] = boq_contract_id
+                if qty:       rec["quantity"]  = qty
+                if unit_cost: rec["unit_cost"] = unit_cost
                 if vals.get("work_type"): rec["work_type"] = vals["work_type"]
+                if vals.get("notes"):     rec["notes"]     = vals["notes"]
                 odoo_call("project.subcontracting.boq.line", "create", [rec])
 
             if "project.detailed.item.line" in models_to_import:
@@ -850,10 +881,9 @@ def import_boq():
                     "name":       vals["name"],
                     "project_id": project_id,
                 }
-                if qty:        rec2["quantity"]     = qty
-                if unit_price: rec2["initial_cost"] = unit_price
-                if qty and unit_price:
-                    rec2["total_cost"] = qty * unit_price
+                if qty:       rec2["quantity"]  = qty
+                if unit_cost: rec2["unit_cost"] = unit_cost
+                if vals.get("notes"): rec2["notes"] = vals["notes"]
                 odoo_call("project.detailed.item.line", "create", [rec2])
 
             imported += 1
