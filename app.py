@@ -675,12 +675,43 @@ _BOQ_KEYWORD_RULES = [
                             "total", "amount", "subtotal", "total cost", "total amount"]),
     ("main_item_line_id", ["main item line id"]),   # numeric Odoo ID column
     ("section_name",      ["chapter name", "section header", "chapter title", "main chapter"]),  # text section label
-    ("boq_item_id",       ["description id", "boq item id", "item id"]),
+    ("boq_item_id",       ["description id", "boq item id"]),   # "item id" removed — too generic
     ("work_type",         ["نوع العمل", "description categ", "categ", "work type", "category"]),
     ("notes",             ["ملاحظات", "resource description", "notes", "remarks"]),
 ]
 _BOQ_SKIP_KEYWORDS = ["#n/a", "cost code", "wastage", "usage", "resource code",
                        "billed", "remain", "col0"]
+
+# Keywords that flag a sheet as a resource-analysis sheet (not a BOQ sheet)
+_RESOURCE_SHEET_PENALTIES = ["resource code", "wastage", "usage", "b.o.m", "bom", "final rate"]
+
+def _boq_sheet_score(header_row, row_count):
+    """Score a worksheet for BOQ suitability — higher = more likely the main BOQ sheet."""
+    score = 0
+    non_null = [h for h in header_row if h is not None and str(h).strip()]
+    if len(non_null) < 2:
+        return -999
+    for h in header_row:
+        if not h:
+            continue
+        hl = _norm_header(str(h))
+        # Heavy penalty for resource-analysis column headers
+        if any(kw in hl for kw in _RESOURCE_SHEET_PENALTIES):
+            score -= 30
+            continue
+        # Reward matching any known BOQ field keyword
+        for _field, keywords in _BOQ_KEYWORD_RULES:
+            if any(_norm_header(kw) in hl for kw in keywords):
+                score += 15
+                break
+        else:
+            # Small bonus for Arabic content even if no keyword match
+            if any('؀' <= c <= 'ۿ' for c in str(h)):
+                score += 2
+    # Penalise extremely large sheets (resource breakdowns can have 5 000+ rows)
+    if row_count and row_count > 1200:
+        score -= 20
+    return score
 
 def _keyword_map_boq(headers):
     """Map column indices to BOQ field names using Arabic/English keywords."""
@@ -711,17 +742,35 @@ def _parse_boq_impl():
         raw_bytes = f.read()
         # Single open — use max_row metadata (instant, no row iteration) to pick sheet
         wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
-        best_ws = wb.active.title if wb.active else (wb.sheetnames[0] if wb.sheetnames else None)
-        best_count = 0
+        best_ws   = wb.active.title if wb.active else (wb.sheetnames[0] if wb.sheetnames else None)
+        best_score = -999
+
         for sname in wb.sheetnames:
-            ws_try = wb[sname]
-            count = ws_try.max_row or 0  # reads XML metadata instantly, no row iteration
-            if count > best_count:
-                best_count, best_ws = count, sname
+            ws_try    = wb[sname]
+            row_count = ws_try.max_row or 0
+            if row_count < 2:
+                continue
+            # Read first ≤10 rows to find the header and score the sheet
+            header_row = None
+            sampled = 0
+            for row_vals in ws_try.iter_rows(min_row=1, max_row=10, values_only=True):
+                sampled += 1
+                non_empty = [c for c in row_vals if c is not None and str(c).strip()]
+                if len(non_empty) >= 3:
+                    header_row = row_vals
+                    break
+            if header_row is None:
+                continue
+            score = _boq_sheet_score(header_row, row_count)
+            logging.info("Sheet '%s': score=%d, rows=%d", sname, score, row_count)
+            if score > best_score:
+                best_score, best_ws = score, sname
+
         ws = wb[best_ws] if best_ws else wb.active
         if ws is None:
             wb.close()
             return jsonify({"error": "Could not read any sheet from the Excel file"}), 400
+        logging.info("Selected sheet '%s' (score=%d)", best_ws, best_score)
         # Read up to 600 rows (header search + up to 300 data rows with buffer)
         raw_rows = []
         for row in ws.iter_rows(values_only=True):
@@ -878,12 +927,14 @@ def import_boq():
             return True
         return False
 
-    imported   = 0
-    sections   = 0
-    skipped    = 0
-    errors     = []
-    boq_contract_id    = None
-    current_main_id    = None   # project.main.item.line id of current section
+    imported        = 0
+    sections        = 0
+    skipped         = 0
+    errors          = []
+    boq_contract_id = None
+    current_main_id = None   # project.main.item.line id of current section
+    last_name       = None   # carry-forward for merged-cell continuation rows
+    last_item_code  = None
 
     def _err(e):
         s = getattr(e, "faultString", None) or str(e)
@@ -927,9 +978,25 @@ def import_boq():
             if col_idx < len(row) and row[col_idx]:
                 vals[field] = row[col_idx]
 
+        # ── Carry-forward: merged-cell rows have qty/price but no name ──────────
+        if not vals.get("name"):
+            q_  = _to_float(vals.get("quantity", 0))
+            uc_ = _to_float(vals.get("unit_cost") or vals.get("unit_price", 0))
+            tc_ = _to_float(vals.get("total_cost", 0))
+            if last_name and (q_ or uc_ or tc_):
+                vals["name"] = last_name
+                if last_item_code and not vals.get("item_code"):
+                    vals["item_code"] = last_item_code
+
         if not vals.get("name"):
             skipped += 1
             continue
+
+        # Update carry-forward state
+        if vals.get("name"):
+            last_name = vals["name"]
+        if vals.get("item_code"):
+            last_item_code = vals["item_code"]
 
         qty        = _to_float(vals.get("quantity", 0))
         unit_cost  = _to_float(vals.get("unit_cost") or vals.get("unit_price", 0))
@@ -999,11 +1066,23 @@ def import_boq():
                 odoo_call("project.detailed.item.line", "create", [rec2])
                 det_ok += 1
             except Exception as e:
-                errors.append(f"Row {i+1} detailed: {_err(e)}")
-                logging.warning("detailed row %d: %s", i+1, e)
+                err_msg = _err(e)
+                # FK violation on boq_item_id → retry without it (file value not in DB)
+                if file_boq_id and ("boq_item_id" in err_msg or "fkey" in err_msg.lower()):
+                    try:
+                        rec2.pop("boq_item_id", None)
+                        odoo_call("project.detailed.item.line", "create", [rec2])
+                        det_ok += 1
+                        logging.info("Row %d: imported without boq_item_id (FK miss)", i+1)
+                    except Exception as e2:
+                        errors.append(f"Row {i+1} detailed: {_err(e2)}")
+                        logging.warning("detailed row %d (retry): %s", i+1, e2)
+                else:
+                    errors.append(f"Row {i+1} detailed: {err_msg}")
+                    logging.warning("detailed row %d: %s", i+1, e)
 
-        if len(errors) >= 5 and i < 20:
-            errors.append("...more errors — see Railway logs for full detail")
+        if len(errors) >= 50:
+            errors.append("...import stopped after 50 errors — check Railway logs")
             break
 
     imported = max(sub_ok, det_ok)
