@@ -304,17 +304,20 @@ function goStep(n) {
   clearAlert();
 }
 
-const FIELD_OPTIONS = ['', 'name', 'item_code', 'quantity', 'unit', 'unit_cost', 'total_cost', 'work_type', 'notes'];
+const FIELD_OPTIONS = ['', 'name', 'item_code', 'quantity', 'unit', 'unit_cost', 'total_cost',
+                       'main_item_line_id', 'boq_item_id', 'work_type', 'notes'];
 const FIELD_LABELS  = {
   '': '— skip —',
-  name: 'name — وصف البند (required)',
-  item_code: 'item_code — القسم / رقم البند',
-  quantity: 'quantity — الكمية',
-  unit: 'unit — الوحدة',
-  unit_cost: 'unit_cost — الفئة / سعر الوحدة',
-  total_cost: 'total_cost — الإجمالي',
-  work_type: 'work_type — نوع العمل',
-  notes: 'notes — ملاحظات',
+  name:               'name — وصف البند (required)',
+  item_code:          'item_code — القسم / رقم البند',
+  quantity:           'quantity — الكمية',
+  unit:               'unit — الوحدة',
+  unit_cost:          'unit_cost — الفئة / سعر الوحدة',
+  total_cost:         'total_cost — الإجمالي',
+  main_item_line_id:  'main_item_line_id — Main Item Line ID (integer ID)',
+  boq_item_id:        'boq_item_id — BOQ Item ID (integer ID)',
+  work_type:          'work_type — نوع العمل / Category',
+  notes:              'notes — ملاحظات',
 };
 
 // ── Step 1 → Parse ────────────────────────────────────────────────────────────

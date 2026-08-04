@@ -660,20 +660,27 @@ def _norm_header(h):
     return h.strip().lower()
 
 _BOQ_KEYWORD_RULES = [
-    ("name",       ["\u0627\u0644\u0628\u0646\u062f", "\u0628\u064a\u0627\u0646", "\u0627\u0644\u0648\u0635\u0641", "\u0648\u0635\u0641",
-                    "description", "task code description", "work description", "item name", "activity"]),
-    ("item_code",  ["\u0627\u0644\u0642\u0633\u0645", "\u0642\u0633\u0645", "\u0631\u0642\u0645 \u0627\u0644\u0628\u0646\u062f", "section",
-                    "item code", "item no", "task code", "serial"]),
-    ("quantity",   ["\u0627\u0644\u0643\u0645\u064a\u0629", "\u0643\u0645\u064a\u0629", "\u0643\u0645\u064a\u0647", "quantity", "qty"]),
-    ("unit",       ["\u0627\u0644\u0648\u062d\u062f\u0629", "\u0648\u062d\u062f\u0629", "\u0648\u062d\u062f\u0647", "unit of measure", "uom", "task code unit"]),
-    ("unit_cost",  ["\u0627\u0644\u0641\u0626\u0629", "\u0641\u0626\u0629", "\u0633\u0639\u0631 \u0627\u0644\u0648\u062d\u062f\u0629", "\u0633\u0639\u0631",
-                    "unit price", "unit rate", "unit cost", "rate"]),
-    ("total_cost", ["\u0627\u0644\u0627\u062c\u0645\u0627\u0644\u064a", "\u0627\u062c\u0645\u0627\u0644\u064a", "\u0627\u0644\u0645\u0628\u0644\u063a",
-                    "total", "amount", "subtotal", "total cost", "total amount"]),
-    ("work_type",  ["\u0646\u0648\u0639 \u0627\u0644\u0639\u0645\u0644", "work type", "category"]),
-    ("notes",      ["\u0645\u0644\u0627\u062d\u0638\u0627\u062a", "resource description", "notes", "remarks"]),
+    # Each tuple: (odoo_field, [keywords_any_of_which_in_normalized_header_triggers_match])
+    # Arabic strings are Unicode escapes to survive file encoding issues
+    ("name",              ["البند", "بيان", "الوصف", "وصف",
+                            "description", "task code description", "work description", "item name", "activity"]),
+    ("item_code",         ["القسم", "قسم", "رقم البند",
+                            "item code", "item no", "task code", "line code", "line no", "serial"]),
+    ("quantity",          ["الكمية", "كمية", "كميه", "quantity", "qty"]),
+    ("unit",              ["الوحدة", "وحدة", "وحده",
+                            "description uom", "uom", "unit of measure", "task code unit"]),
+    ("unit_cost",         ["الفئة", "فئة", "سعر الوحدة", "سعر",
+                            "unit cost", "unit price", "unit rate", "rate"]),
+    ("total_cost",        ["الاجمالي", "اجمالي", "المبلغ",
+                            "total", "amount", "subtotal", "total cost", "total amount"]),
+    ("main_item_line_id", ["main item line id"]),   # numeric Odoo ID column
+    ("boq_item_id",       ["description id", "boq item id", "item id"]),
+    ("work_type",         ["نوع العمل", "description categ", "categ", "work type", "category"]),
+    ("notes",             ["ملاحظات", "resource description", "notes", "remarks"]),
 ]
 _BOQ_SKIP_KEYWORDS = ["#n/a", "cost code", "wastage", "usage", "resource code",
+                       "billed", "remain", "col0", "main item line",  # skip name-only, keep id
+                       ]
                        "billed", "remain", "col0"]
 
 def _keyword_map_boq(headers):
@@ -853,30 +860,41 @@ def import_boq():
     boq_contract_id    = None
     current_main_id    = None   # project.main.item.line id of current section
 
-    # Try to find/create a BOQ contract — non-fatal if it fails
-    if "project.subcontracting.boq.line" in models_to_import:
-        from datetime import date as _date
-        contract_name = f"Tender Import {_date.today().strftime('%Y-%m-%d')}"
-        try:
-            existing = odoo_call("boq.contract", "search_read",
-                [[["name", "=", contract_name], ["project_id", "=", project_id]]],
-                {"fields": ["id"], "limit": 1})
-            if existing:
-                boq_contract_id = existing[0]["id"]
-            else:
-                boq_contract_id = odoo_call("boq.contract", "create",
-                    [{"name": contract_name, "project_id": project_id,
-                      "state": "draft"}])
-        except Exception as e:
-            logging.warning("BOQ contract creation skipped: %s", e)
-            boq_contract_id = None   # continue import without contract link
-
     def _err(e):
-        """Format Odoo exception as plain text (strip angle brackets so browser won't hide it)."""
         s = getattr(e, "faultString", None) or str(e)
-        return s.replace("<", "[").replace(">", "]")[:200]
+        return s.replace("<", "[").replace(">", "]")[:250]
 
-    sub_ok = det_ok = 0  # per-model success counters
+    def _to_int_id(v):
+        """Convert a cell value like '537' or '537.0' to int, or None."""
+        try:
+            return int(float(str(v).replace(",", "").strip()))
+        except Exception:
+            return None
+
+    # ── Find existing boq.contract for the project (needed for subcontracting) ──
+    if "project.subcontracting.boq.line" in models_to_import:
+        try:
+            existing_contracts = odoo_call("boq.contract", "search_read",
+                [[["project_id", "=", project_id]]],
+                {"fields": ["id", "name"], "limit": 1, "order": "id desc"})
+            if existing_contracts:
+                boq_contract_id = existing_contracts[0]["id"]
+                logging.info("Using existing boq.contract id=%d '%s'",
+                             boq_contract_id, existing_contracts[0]["name"])
+            else:
+                # Try creating a minimal contract
+                from datetime import date as _date
+                try:
+                    boq_contract_id = odoo_call("boq.contract", "create",
+                        [{"name": f"Tender Import {_date.today()}", "project_id": project_id}])
+                except Exception as ce:
+                    logging.warning("boq.contract create failed: %s — subcontracting lines will be skipped", ce)
+                    models_to_import = [m for m in models_to_import
+                                        if m != "project.subcontracting.boq.line"]
+        except Exception as e:
+            logging.warning("boq.contract lookup failed: %s", e)
+
+    sub_ok = det_ok = 0
 
     for i, row in enumerate(rows):
         vals = {}
@@ -896,8 +914,13 @@ def import_boq():
         elif qty and total_cost and not unit_cost:
             unit_cost = round(total_cost / qty, 4)
 
+        # Resolve Many2one IDs provided directly in the file
+        file_main_id  = _to_int_id(vals.get("main_item_line_id"))
+        file_boq_id   = _to_int_id(vals.get("boq_item_id"))
+        row_main_id   = file_main_id or current_main_id  # file ID wins, else auto-tracked
+
         # ── Section header → project.main.item.line ──────────────────────────
-        if _is_section_header(vals, qty, unit_cost):
+        if _is_section_header(vals, qty, unit_cost) and not file_main_id:
             code = str(vals.get("item_code", "")).strip()
             sec_name = f"[{code}] {vals['name']}" if code else vals["name"]
             try:
@@ -906,10 +929,10 @@ def import_boq():
                 current_main_id = sec_id
                 sections += 1
             except Exception as e:
-                errors.append(f"Row {i+1} (section): {_err(e)}")
+                errors.append(f"Row {i+1} section: {_err(e)}")
             continue
 
-        # Build display name with item_code prefix
+        # Build display name
         item_name = vals["name"]
         if vals.get("item_code"):
             item_name = f"[{vals['item_code']}] {vals['name']}"
@@ -926,27 +949,27 @@ def import_boq():
                 sub_ok += 1
             except Exception as e:
                 errors.append(f"Row {i+1} subcontracting: {_err(e)}")
-                logging.warning("subcontracting.boq.line create row %d: %s", i+1, e)
+                logging.warning("subcontracting row %d: %s", i+1, e)
 
         # ── project.detailed.item.line ────────────────────────────────────────
         if "project.detailed.item.line" in models_to_import:
             try:
                 rec2 = {"name": item_name, "project_id": project_id}
-                if qty:             rec2["quantity"]  = qty
-                if unit_cost:       rec2["unit_cost"] = unit_cost
-                if current_main_id: rec2["main_item_line_id"] = current_main_id
+                if qty:          rec2["quantity"]  = qty
+                if unit_cost:    rec2["unit_cost"] = unit_cost
+                if row_main_id:  rec2["main_item_line_id"] = row_main_id
+                if file_boq_id:  rec2["boq_item_id"] = file_boq_id
                 odoo_call("project.detailed.item.line", "create", [rec2])
                 det_ok += 1
             except Exception as e:
                 errors.append(f"Row {i+1} detailed: {_err(e)}")
-                logging.warning("detailed.item.line create row %d: %s", i+1, e)
+                logging.warning("detailed row %d: %s", i+1, e)
 
-        # Stop collecting errors after 5 to avoid flood (full log on Railway)
-        if len(errors) >= 5 and i < 15:
-            errors.append("...more errors hidden — check Railway logs for full detail")
+        if len(errors) >= 5 and i < 20:
+            errors.append("...more errors — see Railway logs for full detail")
             break
 
-    imported = max(sub_ok, det_ok)  # rows where at least one model was written
+    imported = max(sub_ok, det_ok)
 
     return jsonify({
         "imported":         imported,
