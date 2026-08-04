@@ -631,22 +631,98 @@ header::after {
   pointer-events: none;
 }
 
-/* ── Reports dashboard ─────────────────────────────────────────── */
+/* ── Dashboard ─────────────────────────────────────────────────── */
 #reports-panel {
   display: none; flex-direction: column;
-  flex: 1; overflow-y: auto; padding: 20px 24px; background: var(--bg);
+  flex: 1; overflow-y: auto; background: var(--bg);
 }
-.rp-grid {
-  max-width: 1100px; margin: 0 auto; width: 100%;
-  display: grid; grid-template-columns: repeat(2,1fr); gap: 14px;
+.dash-wrap {
+  max-width: 1160px; margin: 0 auto; width: 100%;
+  padding: 18px 24px 32px;
 }
-.rp-card {
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 15px;
+/* Global KPI strip */
+.dash-kpi-strip {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;
 }
-.rp-card h3 { font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
-.rp-card .rp-sub { font-size: 10.5px; color: var(--text3); margin-bottom: 12px; font-family: monospace; }
-.rp-card canvas { max-height: 200px; }
+.dash-kpi {
+  flex: 1; min-width: 130px;
+  background: var(--card); border: 1px solid var(--border2);
+  border-top: 3px solid var(--gold); border-radius: 10px;
+  padding: 13px 16px; position: relative; overflow: hidden;
+}
+.dash-kpi-val { font-size: 22px; font-weight: 700; color: var(--gold2); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.dash-kpi-lbl { font-size: 10px; color: #8ab8d6; margin-top: 5px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
+.dash-kpi.blue { border-top-color: var(--blue2); }
+.dash-kpi.blue .dash-kpi-val { color: var(--blue2); }
+.dash-kpi.green { border-top-color: var(--green2); }
+.dash-kpi.green .dash-kpi-val { color: var(--green2); }
+.dash-kpi.purple { border-top-color: #9b5de5; }
+.dash-kpi.purple .dash-kpi-val { color: #9b5de5; }
+/* Module tab bar */
+.dash-tab-bar {
+  display: flex; gap: 3px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 20px; flex-wrap: wrap;
+}
+.dash-tab {
+  padding: 9px 18px; font-size: 13px; font-weight: 600;
+  color: var(--text3); background: none; border: none;
+  border-bottom: 3px solid transparent; margin-bottom: -2px;
+  cursor: pointer; border-radius: 6px 6px 0 0;
+  transition: color .15s, background .15s, border-color .15s;
+  white-space: nowrap; font-family: inherit;
+}
+.dash-tab:hover { color: var(--text2); background: rgba(255,255,255,0.03); }
+.dash-tab.active { color: var(--gold2); border-bottom-color: var(--gold); background: rgba(184,130,10,0.07); }
+/* Tab panes */
+.dash-pane { display: none; }
+.dash-pane.active { display: block; }
+/* Section within a tab */
+.dash-section { margin-bottom: 24px; }
+.dash-section-hdr {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 12px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.dash-section-hdr h4 {
+  font-size: 12px; font-weight: 700; color: var(--gold2);
+  text-transform: uppercase; letter-spacing: 0.6px; margin: 0;
+}
+.dash-section-hdr span { font-size: 10.5px; color: var(--text3); font-family: monospace; }
+.dash-section-kpis { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.dash-skpi {
+  flex: 1; min-width: 110px; max-width: 200px;
+  background: linear-gradient(135deg, rgba(184,130,10,0.1), rgba(184,130,10,0.03));
+  border: 1px solid rgba(184,130,10,0.28); border-radius: 10px; padding: 12px 15px;
+  position: relative; overflow: hidden;
+}
+.dash-skpi::before {
+  content:''; position:absolute; top:0; left:0; width:3px; height:100%;
+  background: linear-gradient(180deg, var(--gold) 0%, transparent 100%);
+}
+.dash-skpi.b { background: linear-gradient(135deg,rgba(26,109,181,0.12),rgba(26,109,181,0.03)); border-color:rgba(26,109,181,0.3); }
+.dash-skpi.b::before { background: linear-gradient(180deg, var(--blue2) 0%, transparent 100%); }
+.dash-skpi-val { font-size: 20px; font-weight: 700; color: var(--gold2); font-variant-numeric: tabular-nums; }
+.dash-skpi.b .dash-skpi-val { color: var(--blue2); }
+.dash-skpi-lbl { font-size: 10px; color: #8ab8d6; margin-top: 4px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; }
+/* Chart grid */
+.dash-chart-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px;
+}
+.dash-chart-card {
+  background: var(--card); border: 1px solid var(--border2);
+  border-radius: 10px; padding: 15px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+}
+.dash-chart-card h5 {
+  font-size: 11.5px; font-weight: 700; color: var(--text);
+  margin: 0 0 2px; line-height: 1.3;
+}
+.dash-chart-card .dcc-sub { font-size: 10px; color: var(--text3); font-family: monospace; margin-bottom: 12px; }
+.dash-chart-card canvas { max-height: 210px; }
+/* Legacy compat */
+.rp-grid { max-width: 1100px; margin: 0 auto; width: 100%; display: grid; grid-template-columns: repeat(2,1fr); gap: 14px; }
+.rp-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 15px; }
 .rp-kpi-row { display: flex; gap: 8px; }
 .kpi-box { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 11px; text-align: center; }
 .kpi-box .kpi-val { font-size: 22px; font-weight: 700; color: var(--gold2); font-variant-numeric: tabular-nums; }
@@ -674,7 +750,7 @@ header::after {
   <div class="hdr-right">
     <div class="status-pill"><div class="status-dot"></div>Live · Odoo 18</div>
     <button class="hbtn active" id="tab-chat"    onclick="switchTab('chat')">💬 Chat</button>
-    <button class="hbtn"        id="tab-reports" onclick="switchTab('reports')">📊 Reports</button>
+    <button class="hbtn"        id="tab-reports" onclick="switchTab('reports')">📊 Dashboard</button>
     <a href="/upload-boq" class="hbtn" style="text-decoration:none">📥 Import BOQ</a>
     <button class="tts-btn" id="tts-toggle-btn" onclick="toggleTTS()" title="Voice on/off">🔇</button>
     <button class="hbtn new" onclick="newChat()">✚ New</button>
@@ -984,10 +1060,45 @@ header::after {
   <div id="welcome"></div>
 </div>
 
-<!-- ── Reports panel ──────────────────────────────────────────────── -->
+<!-- ── Dashboard panel ────────────────────────────────────────────── -->
 <div id="reports-panel">
-  <div class="rp-grid" id="rp-grid-inner">
-    <div id="rp-loading" style="grid-column:1/-1;text-align:center;color:var(--text3);padding:50px">Loading live data…</div>
+  <div class="dash-wrap">
+
+    <!-- Global KPI strip -->
+    <div class="dash-kpi-strip" id="dash-kpi-strip">
+      <div style="color:var(--text3);padding:20px 0;font-size:13px">Loading dashboard…</div>
+    </div>
+
+    <!-- Module tab bar -->
+    <div class="dash-tab-bar" id="dash-tab-bar">
+      <button class="dash-tab active" data-dtab="construction">🏗️ Construction</button>
+      <button class="dash-tab" data-dtab="realestate">🏢 Real Estate</button>
+      <button class="dash-tab" data-dtab="hr">👥 HR</button>
+      <button class="dash-tab" data-dtab="procurement">🛒 Procurement</button>
+    </div>
+
+    <!-- Construction pane -->
+    <div class="dash-pane active" id="dtab-construction">
+      <div class="dash-section" id="ds-contracts"></div>
+      <div class="dash-section" id="ds-adv"></div>
+      <div class="dash-section" id="ds-plans"></div>
+    </div>
+
+    <!-- Real Estate pane -->
+    <div class="dash-pane" id="dtab-realestate">
+      <div class="dash-section" id="ds-re"></div>
+    </div>
+
+    <!-- HR pane -->
+    <div class="dash-pane" id="dtab-hr">
+      <div class="dash-section" id="ds-hr"></div>
+    </div>
+
+    <!-- Procurement pane -->
+    <div class="dash-pane" id="dtab-procurement">
+      <div class="dash-section" id="ds-po"></div>
+    </div>
+
   </div>
 </div>
 
@@ -1584,78 +1695,196 @@ function switchTab(tab) {
   if (!isChat) loadReports();
 }
 
-/* ── Reports dashboard ───────────────────────────────────────────── */
+/* ── Dashboard ───────────────────────────────────────────────────── */
+function _safeArr(x) { return Array.isArray(x) ? x : []; }
+
+function _dashChart(cid, type, data, valKey, isAmount) {
+  const el = document.getElementById(cid);
+  if (!el) return;
+  const isBar = type === 'bar';
+  reportCharts[cid] = new Chart(el, {
+    type: type,
+    data: {
+      labels: data.map(r => r.label),
+      datasets: [{
+        data: data.map(r => r[valKey] || 0),
+        backgroundColor: isBar
+          ? PAL.map(c => c + 'cc')
+          : PAL.slice(0, data.length).map(c => c + 'cc'),
+        borderColor: isBar ? PAL : undefined,
+        borderWidth: isBar ? 1 : 0, borderRadius: isBar ? 5 : 0,
+        hoverOffset: isBar ? 0 : 8
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: !isBar, position: 'right',
+          labels: { color: '#527fa8', boxWidth: 11, font: { size: 10.5 }, padding: 10 }},
+        tooltip: { backgroundColor:'#091e38', borderColor:'#1a4a70', borderWidth:1,
+          titleColor:'#c8ddf0', bodyColor:'#8ab8d6', padding:8,
+          callbacks: { label: ctx => {
+            const v = ctx.parsed.y ?? ctx.parsed;
+            return ' ' + (isAmount ? fmtNum(v) + ' EGP' : Number(v).toLocaleString());
+          }}}
+      },
+      scales: isBar ? {
+        x: { ticks: { color: '#527fa8', font: { size: 10 }, maxRotation: 30 }, grid: { color: 'rgba(16,48,78,0.5)' }},
+        y: { ticks: { color: '#527fa8', font: { size: 10 }, callback: v => isAmount ? _fmtAxis(v) : v }, grid: { color: 'rgba(16,48,78,0.5)' }, beginAtZero: true }
+      } : {}
+    }
+  });
+}
+
+function _dashSection(id, icon, title, sub, kpis, charts) {
+  const sec = document.getElementById(id);
+  if (!sec) return;
+  const kpiHtml = kpis.map(k =>
+    `<div class="dash-skpi${k.blue?' b':''}">
+      <div class="dash-skpi-val">${k.val}</div>
+      <div class="dash-skpi-lbl">${k.lbl}</div>
+    </div>`).join('');
+  const chartHtml = charts.map(c =>
+    `<div class="dash-chart-card">
+      <h5>${c.title}</h5>
+      <div class="dcc-sub">${c.sub}</div>
+      <div style="position:relative;height:200px"><canvas id="${c.id}"></canvas></div>
+    </div>`).join('');
+  sec.innerHTML = `
+    <div class="dash-section-hdr">
+      <span style="font-size:18px">${icon}</span>
+      <h4>${title}</h4>
+      <span>${sub}</span>
+    </div>
+    ${kpis.length ? '<div class="dash-section-kpis">' + kpiHtml + '</div>' : ''}
+    <div class="dash-chart-grid">${chartHtml}</div>`;
+  charts.forEach(c => {
+    if (c.data && c.data.length) _dashChart(c.id, c.type, c.data, c.valKey, c.isAmount);
+  });
+}
+
 async function loadReports() {
-  const grid = document.getElementById('rp-grid-inner');
-  grid.innerHTML = '<div id="rp-loading" style="grid-column:1/-1;text-align:center;color:var(--text3);padding:50px">Loading live data from Odoo…</div>';
   Object.values(reportCharts).forEach(c => { try { c.destroy(); } catch(e){} });
+  const strip = document.getElementById('dash-kpi-strip');
+  strip.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px 0">Loading live data…</div>';
+
+  // Wire up dashboard tab buttons
+  const bar = document.getElementById('dash-tab-bar');
+  if (bar && !bar.dataset.wired) {
+    bar.dataset.wired = '1';
+    bar.querySelectorAll('.dash-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        bar.querySelectorAll('.dash-tab').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.dash-pane').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        const pane = document.getElementById('dtab-' + btn.dataset.dtab);
+        if (pane) pane.classList.add('active');
+      });
+    });
+  }
+
   const base = window.location.pathname.startsWith('/ai') ? '/ai' : '';
   try {
     const d = await fetch(base + '/reports-data').then(r => r.json());
-    grid.innerHTML = '';
-    const totalUnits = (d.units_by_state||[]).reduce((s,r)=>s+r.count,0);
-    const totalEmp   = (d.emp_by_dept||[]).reduce((s,r)=>s+r.count,0);
-    const totalAdv   = (d.adv_by_project||[]).reduce((s,r)=>s+(r.amount||0),0);
-    const totalPO    = (d.po_by_vendor||[]).reduce((s,r)=>s+(r.amount||0),0);
 
-    // KPI row
-    const kpiCard = document.createElement('div');
-    kpiCard.className = 'rp-card'; kpiCard.style.gridColumn = '1/-1';
-    kpiCard.innerHTML = `<h3>Key Performance Indicators</h3>
-      <div class="rp-sub" style="margin-bottom:14px">Live · Odoo 18 · Construction · Real Estate · HR</div>
-      <div class="rp-kpi-row">
-        <div class="kpi-box"><div class="kpi-val">${totalUnits.toLocaleString()}</div><div class="kpi-lbl">Total RE Units</div></div>
-        <div class="kpi-box"><div class="kpi-val">${totalEmp.toLocaleString()}</div><div class="kpi-lbl">Employees</div></div>
-        <div class="kpi-box"><div class="kpi-val">${fmtNum(totalAdv)}</div><div class="kpi-lbl">Advance Payments (EGP)</div></div>
-        <div class="kpi-box"><div class="kpi-val">${fmtNum(totalPO)}</div><div class="kpi-lbl">PO Confirmed Total (EGP)</div></div>
-      </div>`;
-    grid.appendChild(kpiCard);
+    // ── Global KPI strip ──
+    const totalUnits    = _safeArr(d.units_by_state).reduce((s,r) => s + r.count, 0);
+    const totalEmp      = _safeArr(d.emp_by_dept).reduce((s,r) => s + r.count, 0);
+    const totalAdv      = _safeArr(d.adv_by_project).reduce((s,r) => s + (r.amount||0), 0);
+    const totalPO       = _safeArr(d.po_by_vendor).reduce((s,r) => s + (r.amount||0), 0);
+    const totalContracts= _safeArr(d.boq_contracts_by_project).reduce((s,r) => s + (r.amount||0), 0);
+    const totalBOQ      = _safeArr(d.boq_detail_by_project).reduce((s,r) => s + (r.amount||0), 0);
+    strip.innerHTML = `
+      <div class="dash-kpi"><div class="dash-kpi-val">${fmtNum(totalContracts)}</div><div class="dash-kpi-lbl">Contract Value EGP</div></div>
+      <div class="dash-kpi"><div class="dash-kpi-val">${fmtNum(totalBOQ)}</div><div class="dash-kpi-lbl">Client BOQ EGP</div></div>
+      <div class="dash-kpi"><div class="dash-kpi-val">${fmtNum(totalAdv)}</div><div class="dash-kpi-lbl">Advance Payments EGP</div></div>
+      <div class="dash-kpi blue"><div class="dash-kpi-val">${totalUnits.toLocaleString()}</div><div class="dash-kpi-lbl">RE Units</div></div>
+      <div class="dash-kpi green"><div class="dash-kpi-val">${totalEmp.toLocaleString()}</div><div class="dash-kpi-lbl">Employees</div></div>
+      <div class="dash-kpi purple"><div class="dash-kpi-val">${fmtNum(totalPO)}</div><div class="dash-kpi-lbl">PO Value EGP</div></div>`;
 
-    const charts = [
-      { title:'RE Units by State',           sub:'project.rs.unit',               data:d.units_by_state,          type:'doughnut', key:'label',val:'count'  },
-      { title:'Advance Payments by Project', sub:'construction.advance.payment',   data:d.adv_by_project,          type:'bar',      key:'label',val:'amount' },
-      { title:'Advance Payments by State',   sub:'construction.advance.payment',   data:d.adv_by_state,            type:'doughnut', key:'label',val:'count'  },
-      { title:'Client BOQ by Project',       sub:'project.detailed.item.line',     data:d.boq_detail_by_project,   type:'bar',      key:'label',val:'amount' },
-      { title:'Subcontract BOQ by Project',  sub:'project.subcontracting.boq.line',data:d.boq_by_project,          type:'bar',      key:'label',val:'amount' },
-      { title:'Top Vendors by PO Value',     sub:'purchase.order',                 data:d.po_by_vendor,            type:'bar',      key:'label',val:'amount' },
-      { title:'Employees by Department',     sub:'hr.employee',                    data:d.emp_by_dept,             type:'bar',      key:'label',val:'count'  },
-      { title:'Construction Plans by State', sub:'main.project.plan.operation',    data:d.plan_by_state,           type:'doughnut', key:'label',val:'count'  },
-    ];
-    charts.forEach((cfg, idx) => {
-      if (!cfg.data || cfg.data.error || !cfg.data.length) return;
-      const cid = 'rpc_' + idx;
-      const card = document.createElement('div'); card.className = 'rp-card';
-      card.innerHTML = `<h3>${cfg.title}</h3><div class="rp-sub">${cfg.sub}</div><canvas id="${cid}"></canvas>`;
-      grid.appendChild(card);
-      reportCharts[cid] = new Chart(document.getElementById(cid), {
-        type: cfg.type,
-        data: {
-          labels: cfg.data.map(r=>r[cfg.key]),
-          datasets: [{
-            data: cfg.data.map(r=>r[cfg.val]||0),
-            backgroundColor: cfg.type==='doughnut' ? PAL : PAL[idx % PAL.length],
-            borderRadius: cfg.type==='bar' ? 5 : 0, borderWidth: 0,
-          }]
-        },
-        options: {
-          responsive: true,
-          plugins: {
-            legend: { display: cfg.type==='doughnut', labels:{color:'#527fa8',boxWidth:11,font:{size:10.5}} },
-            tooltip: { callbacks: { label: ctx => {
-              const v = ctx.parsed.y ?? ctx.parsed;
-              return ' ' + (cfg.val==='amount' ? (fmtNum(v)||0)+' EGP' : Number(v).toLocaleString());
-            }}}
-          },
-          scales: cfg.type==='bar' ? {
-            x:{ticks:{color:'#2d4f6e',font:{size:10},maxRotation:30},grid:{color:'rgba(16,48,78,0.5)'}},
-            y:{ticks:{color:'#2d4f6e',font:{size:10},callback:v=>cfg.val==='amount'?fmtNum(v):v},grid:{color:'rgba(16,48,78,0.5)'}}
-          } : {}
-        }
-      });
-    });
-    if (!grid.children.length) grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text3);padding:40px">No data available yet.</div>';
+    // ── Construction: Contracts section ──
+    const ctrData = _safeArr(d.boq_contracts_by_project).filter(r => r.amount > 0);
+    const boqData = _safeArr(d.boq_detail_by_project).filter(r => r.amount > 0);
+    _dashSection('ds-contracts', '📄', 'Subcontractor Contracts & BOQ', 'subcontractor.contract · project.detailed.item.line',
+      [
+        { val: fmtNum(totalContracts), lbl: 'Total Contract Value EGP' },
+        { val: fmtNum(totalBOQ),       lbl: 'Total Client BOQ EGP', blue: true },
+        { val: _safeArr(d.boq_contracts_by_project).length, lbl: 'Projects with Contracts', blue: true },
+      ],
+      [
+        { id:'dc_ctr', title:'Subcontractor Contract Value by Project', sub:'subcontractor.contract', type:'bar', data:ctrData, valKey:'amount', isAmount:true },
+        { id:'dc_boq', title:'Client BOQ Total Cost by Project',        sub:'project.detailed.item.line', type:'bar', data:boqData, valKey:'amount', isAmount:true },
+      ]
+    );
+
+    // ── Construction: Advance Payments section ──
+    const advPrjData = _safeArr(d.adv_by_project).filter(r => r.amount > 0);
+    const advStData  = _safeArr(d.adv_by_state);
+    _dashSection('ds-adv', '💰', 'Advance Payments', 'construction.advance.payment',
+      [
+        { val: fmtNum(totalAdv), lbl: 'Total Advances EGP' },
+        { val: advStData.length, lbl: 'Status Types', blue: true },
+      ],
+      [
+        { id:'dc_advprj', title:'Advance Payments by Project', sub:'construction.advance.payment', type:'bar',      data:advPrjData, valKey:'amount', isAmount:true },
+        { id:'dc_advst',  title:'Payments by Status',          sub:'construction.advance.payment', type:'doughnut', data:advStData,  valKey:'count',  isAmount:false },
+      ]
+    );
+
+    // ── Construction: Plans section ──
+    const planData = _safeArr(d.plan_by_state);
+    _dashSection('ds-plans', '📅', 'Construction Plans', 'main.project.plan.operation',
+      [
+        { val: planData.reduce((s,r)=>s+r.count,0), lbl: 'Total Milestones' },
+        { val: planData.length, lbl: 'Plan Types', blue: true },
+      ],
+      [
+        { id:'dc_plan', title:'Milestones by Plan Type', sub:'main.project.plan.operation', type:'doughnut', data:planData, valKey:'count', isAmount:false },
+      ]
+    );
+
+    // ── Real Estate ──
+    const reStData  = _safeArr(d.units_by_state);
+    const reTypData = _safeArr(d.units_by_type);
+    _dashSection('ds-re', '🏠', 'Property Units', 'rs.dev.unit',
+      [
+        { val: totalUnits.toLocaleString(), lbl: 'Total Units' },
+        { val: reStData.length,  lbl: 'Status Categories', blue: true },
+        { val: reTypData.length, lbl: 'Usage Types',        blue: true },
+      ],
+      [
+        { id:'dc_re_st', title:'Units by Status',       sub:'rs.dev.unit · historical_process', type:'doughnut', data:reStData,  valKey:'count', isAmount:false },
+        { id:'dc_re_tp', title:'Units by Usage Type',   sub:'rs.dev.unit · usability_type',     type:'doughnut', data:reTypData, valKey:'count', isAmount:false },
+      ]
+    );
+
+    // ── HR ──
+    const empData = _safeArr(d.emp_by_dept);
+    _dashSection('ds-hr', '👤', 'Employees & Departments', 'hr.employee · hr.department',
+      [
+        { val: totalEmp.toLocaleString(), lbl: 'Total Employees' },
+        { val: empData.length, lbl: 'Departments', blue: true },
+      ],
+      [
+        { id:'dc_hr', title:'Headcount by Department', sub:'hr.employee', type:'bar', data:empData, valKey:'count', isAmount:false },
+      ]
+    );
+
+    // ── Procurement ──
+    const poData = _safeArr(d.po_by_vendor);
+    _dashSection('ds-po', '🛒', 'Purchase Orders', 'purchase.order',
+      [
+        { val: fmtNum(totalPO), lbl: 'Confirmed PO Value EGP' },
+        { val: poData.length,   lbl: 'Top Vendors', blue: true },
+      ],
+      [
+        { id:'dc_po', title:'Top Vendors by PO Value', sub:'purchase.order (state: purchase / done)', type:'bar', data:poData, valKey:'amount', isAmount:true },
+      ]
+    );
+
   } catch(e) {
-    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--red);padding:40px">❌ Failed to load: ${e.message}</div>`;
+    document.getElementById('dash-kpi-strip').innerHTML =
+      `<div style="color:var(--red);padding:8px">❌ Failed to load: ${e.message}</div>`;
   }
 }
 

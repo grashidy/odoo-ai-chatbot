@@ -681,9 +681,9 @@ def reports_data():
     # Construction: BOQ lines by project
     boq_by_project = safe("project.subcontracting.boq.line", "read_group",
         [[], ["project_id", "boq_cost:sum", "quantity:sum"], ["project_id"]], {"lazy": False})
-    # Construction: BOQ contracts by project
-    boq_contracts_by_project = safe("boq.contract", "read_group",
-        [[], ["project_id"], ["project_id"]], {"lazy": False})
+    # Construction: subcontractor contracts by project
+    boq_contracts_by_project = safe("subcontractor.contract", "read_group",
+        [[], ["project_id", "contract_value:sum", "bills_amount_total:sum"], ["project_id"]], {"lazy": False})
     # Construction: advance payments by state
     adv_by_state = safe("construction.advance.payment", "read_group",
         [[], ["state"], ["state"]], {"lazy": False})
@@ -700,15 +700,18 @@ def reports_data():
     # HR: employees by department
     emp_by_dept = safe("hr.employee", "read_group",
         [[], ["department_id"], ["department_id"]], {"lazy": False})
-    # Real Estate: units by state — model prefix is project.rs.unit (NOT rs.unit)
-    units_by_state = safe("project.rs.unit", "read_group",
-        [[], ["state"], ["state"]], {"lazy": False})
-    # Construction: detailed BOQ lines by project (client-facing BOQ)
+    # Real Estate: units by usability_type
+    units_by_type = safe("rs.dev.unit", "read_group",
+        [[], ["usability_type"], ["usability_type"]], {"lazy": False})
+    # Construction: detailed BOQ lines by project (client-facing BOQ) — total_cost is the correct amount
     boq_detail_by_project = safe("project.detailed.item.line", "read_group",
-        [[], ["project_id", "unit_cost:sum"], ["project_id"]], {"lazy": False})
-    # Construction: plan milestones by state
-    plan_by_state = safe("main.project.plan.operation", "read_group",
-        [[], ["state"], ["state"]], {"lazy": False})
+        [[], ["project_id", "total_cost:sum"], ["project_id"]], {"lazy": False})
+    # Construction: plan milestones by plan_type
+    plan_by_type = safe("main.project.plan.operation", "read_group",
+        [[], ["plan_type"], ["plan_type"]], {"lazy": False})
+    # Real Estate: units by historical_process (correct status field on rs.dev.unit)
+    units_by_hp = safe("rs.dev.unit", "read_group",
+        [[], ["historical_process"], ["historical_process"]], {"lazy": False})
 
     def extract(rows, label_field, count_field="__count", amount_field=None):
         if isinstance(rows, dict) and "error" in rows:
@@ -727,16 +730,17 @@ def reports_data():
         return out
 
     return jsonify({
-        "boq_by_project":           extract(boq_by_project,           "project_id", amount_field="boq_cost"),
-        "boq_contracts_by_project": extract(boq_contracts_by_project, "project_id"),
-        "boq_detail_by_project":    extract(boq_detail_by_project,    "project_id", amount_field="unit_cost"),
+        "boq_by_project":           extract(boq_by_project,           "project_id",        amount_field="boq_cost"),
+        "boq_contracts_by_project": extract(boq_contracts_by_project, "project_id",        amount_field="contract_value"),
+        "boq_detail_by_project":    extract(boq_detail_by_project,    "project_id",        amount_field="total_cost"),
         "adv_by_state":             extract(adv_by_state,             "state"),
-        "adv_by_project":           extract(adv_by_project,           "project_id", amount_field="amount"),
-        "items_by_project":         extract(items_by_project,         "project_id", amount_field="total_cost"),
-        "po_by_vendor":             extract(po_by_vendor,             "partner_id",  amount_field="amount_total"),
+        "adv_by_project":           extract(adv_by_project,           "project_id",        amount_field="amount"),
+        "items_by_project":         extract(items_by_project,         "project_id",        amount_field="total_cost"),
+        "po_by_vendor":             extract(po_by_vendor,             "partner_id",        amount_field="amount_total"),
         "emp_by_dept":              extract(emp_by_dept,              "department_id"),
-        "units_by_state":           extract(units_by_state,           "state"),
-        "plan_by_state":            extract(plan_by_state,            "state"),
+        "units_by_state":           extract(units_by_hp,              "historical_process"),
+        "units_by_type":            extract(units_by_type,            "usability_type"),
+        "plan_by_state":            extract(plan_by_type,             "plan_type"),
     })
 
 # ── BOQ Import ─────────────────────────────────────────────────────────────────
