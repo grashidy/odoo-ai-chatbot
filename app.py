@@ -19,7 +19,7 @@ socket.setdefaulttimeout(55)
 # ── AI provider: Gemini (primary) with Groq fallback for Whisper ───────────────
 GEMINI_API_KEY  = os.environ.get("GEMINI_API_KEY", "").strip()
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-AI_MODEL        = "gemini-2.0-flash"
+AI_MODEL        = "gemini-1.5-flash"
 
 # Groq key — only used for Whisper audio transcription
 _key_file = Path(__file__).parent / ".groq_key"
@@ -588,6 +588,13 @@ def chat():
                 # No tool calls → final text answer
                 if finish in ("stop", "end_turn") or not msg.tool_calls:
                     text = msg.content or "I was unable to generate a response. Please try again."
+                    # Guard: if model leaked raw function-call syntax, suppress it
+                    if "<function=" in text or "odoo_search" in text[:50]:
+                        logging.warning("Model leaked raw tool call in content, retrying synthesis")
+                        # Inject stronger instruction and continue to next iteration
+                        messages.append({"role": "user", "content": "IMPORTANT: Do NOT output function call syntax. Write only the final human-readable answer in the user's language."})
+                        answered = False
+                        continue
                     yield f"data: {json.dumps({'type': 'text', 'text': text})}\n\n"
                     answered = True
                     break
@@ -641,11 +648,14 @@ def chat():
                         "content": _tool_result[0] or json.dumps({"error": "empty result"})
                     })
 
+                # Always inject "answer now" after any tool execution so the
+                # model doesn't output raw function-call syntax in its text
+                messages.append({
+                    "role": "user",
+                    "content": "The Odoo data above has been retrieved. Give the final answer now in the same language as the original question. Use markdown tables. Do NOT output any function call syntax or tool invocations — just the answer."
+                })
+
                 if loop_detected:
-                    messages.append({
-                        "role": "user",
-                        "content": "You have enough data. Stop calling tools and give the final answer now."
-                    })
                     _fr = [None, None]; _fe = threading.Event()
                     def _final_call():
                         try:
