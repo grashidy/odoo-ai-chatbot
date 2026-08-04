@@ -871,80 +871,92 @@ def import_boq():
             logging.warning("BOQ contract creation skipped: %s", e)
             boq_contract_id = None   # continue import without contract link
 
+    def _err(e):
+        """Format Odoo exception as plain text (strip angle brackets so browser won't hide it)."""
+        s = getattr(e, "faultString", None) or str(e)
+        return s.replace("<", "[").replace(">", "]")[:200]
+
+    sub_ok = det_ok = 0  # per-model success counters
+
     for i, row in enumerate(rows):
-        try:
-            vals = {}
-            for col_idx, field in col_map.items():
-                if col_idx < len(row) and row[col_idx]:
-                    vals[field] = row[col_idx]
+        vals = {}
+        for col_idx, field in col_map.items():
+            if col_idx < len(row) and row[col_idx]:
+                vals[field] = row[col_idx]
 
-            if not vals.get("name"):
-                skipped += 1
-                continue
+        if not vals.get("name"):
+            skipped += 1
+            continue
 
-            qty        = _to_float(vals.get("quantity", 0))
-            unit_cost  = _to_float(vals.get("unit_cost") or vals.get("unit_price", 0))
-            total_cost = _to_float(vals.get("total_cost", 0))
-            if qty and unit_cost and not total_cost:
-                total_cost = qty * unit_cost
-            elif qty and total_cost and not unit_cost:
-                unit_cost = round(total_cost / qty, 4)
+        qty        = _to_float(vals.get("quantity", 0))
+        unit_cost  = _to_float(vals.get("unit_cost") or vals.get("unit_price", 0))
+        total_cost = _to_float(vals.get("total_cost", 0))
+        if qty and unit_cost and not total_cost:
+            total_cost = qty * unit_cost
+        elif qty and total_cost and not unit_cost:
+            unit_cost = round(total_cost / qty, 4)
 
-            # ── Section header → project.main.item.line ──────────────────────
-            if _is_section_header(vals, qty, unit_cost):
-                code = str(vals.get("item_code", "")).strip()
-                sec_name = f"[{code}] {vals['name']}" if code else vals["name"]
-                try:
-                    sec_id = odoo_call("project.main.item.line", "create",
-                        [{"name": sec_name, "project_id": project_id}])
-                    current_main_id = sec_id
-                    sections += 1
-                except Exception as e:
-                    errors.append(f"Row {i+1} (section '{sec_name[:40]}'): {str(e)[:100]}")
-                continue   # don't also create as a BOQ line
+        # ── Section header → project.main.item.line ──────────────────────────
+        if _is_section_header(vals, qty, unit_cost):
+            code = str(vals.get("item_code", "")).strip()
+            sec_name = f"[{code}] {vals['name']}" if code else vals["name"]
+            try:
+                sec_id = odoo_call("project.main.item.line", "create",
+                    [{"name": sec_name, "project_id": project_id}])
+                current_main_id = sec_id
+                sections += 1
+            except Exception as e:
+                errors.append(f"Row {i+1} (section): {_err(e)}")
+            continue
 
-            # ── Line item → project.subcontracting.boq.line ──────────────────
-            if "project.subcontracting.boq.line" in models_to_import:
-                rec = {
-                    "name":       vals["name"],
-                    "project_id": project_id,
-                }
-                if boq_contract_id:         rec["boq_contract_id"] = boq_contract_id
-                if vals.get("item_code"):   rec["name"] = f"[{vals['item_code']}] {vals['name']}"
-                if qty:                     rec["quantity"]  = qty
-                if unit_cost:               rec["unit_cost"] = unit_cost
-                if vals.get("work_type"):   rec["work_type"] = vals["work_type"]
-                if vals.get("notes"):       rec["notes"]     = vals["notes"]
+        # Build display name with item_code prefix
+        item_name = vals["name"]
+        if vals.get("item_code"):
+            item_name = f"[{vals['item_code']}] {vals['name']}"
+
+        # ── project.subcontracting.boq.line ──────────────────────────────────
+        if "project.subcontracting.boq.line" in models_to_import:
+            try:
+                rec = {"name": item_name, "project_id": project_id}
+                if boq_contract_id: rec["boq_contract_id"] = boq_contract_id
+                if qty:             rec["quantity"]  = qty
+                if unit_cost:       rec["unit_cost"] = unit_cost
+                if vals.get("work_type"): rec["work_type"] = vals["work_type"]
                 odoo_call("project.subcontracting.boq.line", "create", [rec])
+                sub_ok += 1
+            except Exception as e:
+                errors.append(f"Row {i+1} subcontracting: {_err(e)}")
+                logging.warning("subcontracting.boq.line create row %d: %s", i+1, e)
 
-            # ── Line item → project.detailed.item.line ────────────────────────
-            if "project.detailed.item.line" in models_to_import:
-                rec2 = {
-                    "name":       vals["name"],
-                    "project_id": project_id,
-                }
-                if vals.get("item_code"):   rec2["name"] = f"[{vals['item_code']}] {vals['name']}"
-                if qty:                     rec2["quantity"]  = qty
-                if unit_cost:               rec2["unit_cost"] = unit_cost
-                if current_main_id:         rec2["main_item_line_id"] = current_main_id
-                if vals.get("notes"):       rec2["notes"] = vals["notes"]
+        # ── project.detailed.item.line ────────────────────────────────────────
+        if "project.detailed.item.line" in models_to_import:
+            try:
+                rec2 = {"name": item_name, "project_id": project_id}
+                if qty:             rec2["quantity"]  = qty
+                if unit_cost:       rec2["unit_cost"] = unit_cost
+                if current_main_id: rec2["main_item_line_id"] = current_main_id
                 odoo_call("project.detailed.item.line", "create", [rec2])
+                det_ok += 1
+            except Exception as e:
+                errors.append(f"Row {i+1} detailed: {_err(e)}")
+                logging.warning("detailed.item.line create row %d: %s", i+1, e)
 
-            imported += 1
+        # Stop collecting errors after 5 to avoid flood (full log on Railway)
+        if len(errors) >= 5 and i < 15:
+            errors.append("...more errors hidden — check Railway logs for full detail")
+            break
 
-        except Exception as e:
-            errors.append(f"Row {i + 1}: {str(e)[:120]}")
-            if len(errors) >= 10:
-                errors.append("…stopped after 10 errors")
-                break
+    imported = max(sub_ok, det_ok)  # rows where at least one model was written
 
     return jsonify({
         "imported":         imported,
+        "sub_ok":           sub_ok,
+        "det_ok":           det_ok,
         "sections":         sections,
         "skipped":          skipped,
         "errors":           errors,
         "boq_contract_id":  boq_contract_id,
-        "models_used":      [m for m in models_to_import] + (
+        "models_used":      list(models_to_import) + (
             ["project.main.item.line"] if sections > 0 else []),
     })
 

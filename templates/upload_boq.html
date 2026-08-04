@@ -426,24 +426,26 @@ async function doImport() {
     const d = await r.json();
     if (d.error) { showAlert(d.error); return; }
 
-    let html = `
-      <div class="gap12" style="margin-bottom:16px">
-        <span class="badge badge-green">✓ ${d.imported} BOQ lines imported</span>
-        ${d.sections ? `<span class="badge badge-green">✓ ${d.sections} sections (main.item.line)</span>` : ''}
-        ${d.skipped ? `<span class="badge badge-amber">⟳ ${d.skipped} rows skipped</span>` : ''}
-        ${d.errors?.length ? `<span class="badge badge-red">✗ ${d.errors.length} errors</span>` : ''}
-      </div>`;
-    if (d.models_used?.length) {
-      html += `<p style="color:var(--muted);font-size:.85rem;margin-bottom:8px">Models written: <strong style="color:var(--accent2)">${d.models_used.join(', ')}</strong></p>`;
-    }
+    // HTML-escape helper so Odoo fault strings don't vanish as HTML tags
+    const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    let html = `<div class="gap12" style="margin-bottom:16px">`;
+    if (d.sections)  html += `<span class="badge badge-green">✓ ${d.sections} sections → main.item.line</span>`;
+    if (d.sub_ok)    html += `<span class="badge badge-green">✓ ${d.sub_ok} → subcontracting.boq.line</span>`;
+    if (d.det_ok)    html += `<span class="badge badge-green">✓ ${d.det_ok} → detailed.item.line</span>`;
+    if (d.skipped)   html += `<span class="badge badge-amber">⟳ ${d.skipped} skipped (no name)</span>`;
+    if (d.errors?.length) html += `<span class="badge badge-red">✗ ${d.errors.length} errors</span>`;
+    html += `</div>`;
     if (d.boq_contract_id) {
-      html += `<p style="color:var(--muted);font-size:.85rem">BOQ Contract ID: <strong style="color:var(--text)">${d.boq_contract_id}</strong></p>`;
+      html += `<p style="color:var(--muted);font-size:.85rem;margin-bottom:8px">BOQ Contract ID: <strong style="color:var(--text)">${d.boq_contract_id}</strong></p>`;
     }
     if (d.errors?.length) {
-      html += `<div class="alert alert-error mt12"><strong>Errors (first 10):</strong><br>${d.errors.join('<br>')}</div>`;
+      html += `<div class="alert alert-error mt12"><strong>Errors:</strong><br>${d.errors.map(esc).join('<br>')}</div>`;
     }
-    if (d.imported > 0 || d.sections > 0) {
-      html += `<div class="alert alert-success mt12">Import complete — <strong>${d.imported}</strong> BOQ lines + <strong>${d.sections||0}</strong> section headers written to Odoo. Query them in the AI Chat.</div>`;
+    const total = (d.sections||0) + (d.sub_ok||0) + (d.det_ok||0);
+    if (total > 0) {
+      html += `<div class="alert alert-success mt12">Import complete — ${d.sections||0} sections + ${d.sub_ok||0} subcontracting lines + ${d.det_ok||0} detailed lines written to Odoo.</div>`;
+    } else if (!d.errors?.length) {
+      html += `<div class="alert alert-error mt12">Nothing was imported. Check that the column mapping includes a "name" column.</div>`;
     }
     document.getElementById('result-box').innerHTML = html;
     goStep(4);
