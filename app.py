@@ -674,12 +674,13 @@ _BOQ_KEYWORD_RULES = [
     ("total_cost",        ["الاجمالي", "اجمالي", "المبلغ",
                             "total", "amount", "subtotal", "total cost", "total amount"]),
     ("main_item_line_id", ["main item line id"]),   # numeric Odoo ID column
+    ("section_name",      ["chapter name", "section header", "chapter title", "main chapter"]),  # text section label
     ("boq_item_id",       ["description id", "boq item id", "item id"]),
     ("work_type",         ["نوع العمل", "description categ", "categ", "work type", "category"]),
     ("notes",             ["ملاحظات", "resource description", "notes", "remarks"]),
 ]
 _BOQ_SKIP_KEYWORDS = ["#n/a", "cost code", "wastage", "usage", "resource code",
-                       "billed", "remain", "col0", "main item line"]
+                       "billed", "remain", "col0"]
 
 def _keyword_map_boq(headers):
     """Map column indices to BOQ field names using Arabic/English keywords."""
@@ -763,16 +764,42 @@ def _parse_boq_impl():
     # Step 2: AI mapping (enhances/overrides keyword map if AI is available)
     sample = data_rows[:3]
     prompt = (
-        "Excel BOQ file columns (index: header):\n"
-        + "\n".join(f"  {i}: {h}" for i, h in enumerate(headers))
-        + f"\n\nSample row: {sample[0] if sample else []}\n\n"
-        "Map each useful column INDEX to ONE of these field names:\n"
-        "  name=item description (البند), item_code=code/ref (القسم), quantity=qty (الكمية),\n"
-        "  unit=UOM (الوحدة), unit_cost=rate/price (الفئة), total_cost=total (الإجمالي),\n"
-        "  work_type=category, notes=remarks\n\n"
-        "Rules: البند/description→name, الكمية→quantity, الوحدة→unit, الفئة/rate→unit_cost, القسم/code→item_code, الإجمالي/total→total_cost.\n"
-        "SKIP #N/A, Cost Code, Usage, Wastage, Resource Code columns.\n"
-        "Return ONLY a JSON object like: {\"1\": \"item_code\", \"2\": \"name\", \"3\": \"quantity\", \"4\": \"unit\", \"5\": \"unit_cost\", \"6\": \"total_cost\"}"
+        "You are mapping an Excel BOQ (Bill of Quantities) file to Odoo construction models.\n\n"
+        "EXCEL COLUMNS (index: header | sample values):\n"
+        + "\n".join(
+            f"  {i}: {h} | {' / '.join(str(r[i]) for r in sample if i < len(r) and r[i])}"
+            for i, h in enumerate(headers)
+        )
+        + "\n\nAVAILABLE ODOO FIELDS (map each column to exactly one):\n"
+        "  COMMON (all BOQ models):\n"
+        "    name          = البند / Description / item description (REQUIRED — must map this)\n"
+        "    quantity      = الكمية / Quantity / Qty\n"
+        "    unit_cost     = الفئة / Unit Cost / Rate / Unit Price\n"
+        "    total_cost    = الإجمالي / Total / Amount\n"
+        "    item_code     = القسم / رقم البند / Line Code / Item No\n"
+        "    unit          = الوحدة / UOM / Unit of Measure / Description UOM\n"
+        "    work_type     = نوع العمل / Category / Description Categ\n"
+        "    notes         = ملاحظات / Remarks / Notes\n"
+        "  project.main.item.line (chapter/section headers with no qty):\n"
+        "    section_name  = Chapter name / Main Item Line (text, not ID)\n"
+        "  project.detailed.item.line:\n"
+        "    main_item_line_id = Main Item Line ID (INTEGER — Odoo record ID e.g. 537)\n"
+        "    boq_item_id       = Description ID / BOQ Item ID (INTEGER)\n"
+        "  project.subcontracting.boq.line:\n"
+        "    boq_contract_id   = BOQ Contract ID (INTEGER)\n\n"
+        "MAPPING RULES:\n"
+        "  - البند/Description (not ID) → name\n"
+        "  - الكمية/Quantity/Qty → quantity\n"
+        "  - الوحدة/UOM/Description UOM → unit\n"
+        "  - الفئة/Rate/Unit Cost/Unit Price → unit_cost\n"
+        "  - الإجمالي/Total/Amount → total_cost\n"
+        "  - القسم/Line Code/Item No → item_code\n"
+        "  - 'Main Item Line ID' column with integers (537,538...) → main_item_line_id\n"
+        "  - 'Main Item Line' column with text → section_name\n"
+        "  - 'Description ID' / 'Description Categ' → boq_item_id / work_type\n"
+        "  - SKIP: #N/A columns, Cost Code, Wastage, Usage, Resource Code, billed, remain\n\n"
+        "Return ONLY a JSON object: {\"col_index\": \"field_name\", ...}\n"
+        "Example: {\"1\":\"item_code\",\"2\":\"name\",\"3\":\"quantity\",\"4\":\"unit\",\"5\":\"unit_cost\",\"6\":\"total_cost\"}"
     )
     try:
         _boq_client, _boq_model = _make_chat_client(_boq_override)
@@ -917,7 +944,19 @@ def import_boq():
         file_boq_id   = _to_int_id(vals.get("boq_item_id"))
         row_main_id   = file_main_id or current_main_id  # file ID wins, else auto-tracked
 
-        # ── Section header → project.main.item.line ──────────────────────────
+        # ── Explicit section_name column mapping → project.main.item.line ──
+        explicit_sec = str(vals.get("section_name", "")).strip()
+        if explicit_sec:
+            try:
+                sec_id = odoo_call("project.main.item.line", "create",
+                    [{"name": explicit_sec, "project_id": project_id}])
+                current_main_id = sec_id
+                sections += 1
+            except Exception as e:
+                errors.append(f"Row {i+1} section: {_err(e)}")
+            continue
+
+        # ── Auto-detect section header (no qty, short code without dash) ────
         if _is_section_header(vals, qty, unit_cost) and not file_main_id:
             code = str(vals.get("item_code", "")).strip()
             sec_name = f"[{code}] {vals['name']}" if code else vals["name"]

@@ -207,8 +207,8 @@ select:focus, input:focus { border-color: var(--accent); }
 
   <!-- ── Step 2: Column Mapping ── -->
   <div id="step2" class="card hidden">
-    <h3>Step 2 — Column Mapping  <span id="total-rows-badge" class="badge badge-green"></span></h3>
-    <p style="color:var(--muted);font-size:.85rem;margin-bottom:14px">AI detected the mapping below. Adjust dropdowns if needed, then click Continue.</p>
+    <h3>Step 2 — Column Mapping  <span id="total-rows-badge" class="badge badge-green"></span>  <span id="map-summary" style="color:var(--green);font-size:.8rem;font-weight:400"></span></h3>
+    <p style="color:var(--muted);font-size:.85rem;margin-bottom:14px">AI + keyword mapping auto-detected below. Each dropdown shows all BOQ model fields grouped by model. Adjust if needed, then click Continue.</p>
     <table class="map-table" id="map-table">
       <thead><tr><th>#</th><th>Excel Column Header</th><th>Odoo Field</th><th>Sample Value</th></tr></thead>
       <tbody></tbody>
@@ -307,21 +307,64 @@ function goStep(n) {
   clearAlert();
 }
 
-const FIELD_OPTIONS = ['', 'name', 'item_code', 'quantity', 'unit', 'unit_cost', 'total_cost',
-                       'main_item_line_id', 'boq_item_id', 'work_type', 'notes'];
-const FIELD_LABELS  = {
-  '': '— skip —',
-  name:               'name — وصف البند (required)',
-  item_code:          'item_code — القسم / رقم البند',
-  quantity:           'quantity — الكمية',
-  unit:               'unit — الوحدة',
-  unit_cost:          'unit_cost — الفئة / سعر الوحدة',
-  total_cost:         'total_cost — الإجمالي',
-  main_item_line_id:  'main_item_line_id — Main Item Line ID (integer ID)',
-  boq_item_id:        'boq_item_id — BOQ Item ID (integer ID)',
-  work_type:          'work_type — نوع العمل / Category',
-  notes:              'notes — ملاحظات',
-};
+// ── BOQ field groups — all models ────────────────────────────────────────────
+const BOQ_FIELD_GROUPS = [
+  {
+    group: '— skip —',
+    fields: [{ value: '', label: '— skip this column —' }]
+  },
+  {
+    group: '📋 Common (all BOQ models)',
+    fields: [
+      { value: 'name',       label: 'name — البند / Description  ★ required' },
+      { value: 'quantity',   label: 'quantity — الكمية / Quantity' },
+      { value: 'unit_cost',  label: 'unit_cost — الفئة / Unit Cost / Rate' },
+      { value: 'total_cost', label: 'total_cost — الإجمالي / Total Amount' },
+      { value: 'item_code',  label: 'item_code — القسم / رقم البند / Line Code' },
+      { value: 'unit',       label: 'unit — الوحدة / UOM' },
+      { value: 'work_type',  label: 'work_type — نوع العمل / Category' },
+      { value: 'notes',      label: 'notes — ملاحظات / Remarks' },
+    ]
+  },
+  {
+    group: '🏗️ project.main.item.line (Sections/Chapters)',
+    fields: [
+      { value: 'section_name', label: 'section_name — Chapter/Section header (creates main item)' },
+    ]
+  },
+  {
+    group: '📐 project.detailed.item.line (Client BOQ)',
+    fields: [
+      { value: 'main_item_line_id', label: 'main_item_line_id — Main Item Line ID (integer, links to section)' },
+      { value: 'boq_item_id',       label: 'boq_item_id — BOQ Catalogue Item ID (integer)' },
+    ]
+  },
+  {
+    group: '🔧 project.subcontracting.boq.line (Subcontractor BOQ)',
+    fields: [
+      { value: 'boq_contract_id', label: 'boq_contract_id — BOQ Contract ID (integer)' },
+    ]
+  },
+];
+
+// Flat list of all valid field values (for backward compat)
+const ALL_FIELD_VALUES = BOQ_FIELD_GROUPS.flatMap(g => g.fields.map(f => f.value));
+
+function buildFieldSelect(detected, colIdx) {
+  let html = '';
+  for (const grp of BOQ_FIELD_GROUPS) {
+    if (grp.group === '— skip —') {
+      html += `<option value="" ${!detected?'selected':''}>— skip —</option>`;
+    } else {
+      html += `<optgroup label="${grp.group}">`;
+      for (const f of grp.fields) {
+        html += `<option value="${f.value}" ${f.value===detected?'selected':''}>${f.label}</option>`;
+      }
+      html += `</optgroup>`;
+    }
+  }
+  return `<select onchange="updateMap(${colIdx},this.value)">${html}</select>`;
+}
 
 // ── Step 1 → Parse ────────────────────────────────────────────────────────────
 async function parseFile() {
@@ -364,17 +407,21 @@ function buildMappingTable() {
   tbody.innerHTML = '';
   _headers.forEach((h, i) => {
     const detected = _colMap[String(i)] || '';
-    const sample   = _rows.slice(0,3).map(r => r[i] || '').filter(Boolean).join(' / ').substring(0,60);
-    const opts = FIELD_OPTIONS.map(f =>
-      `<option value="${f}" ${f===detected?'selected':''}>${FIELD_LABELS[f]}</option>`).join('');
+    const sample   = _rows.slice(0,3).map(r => r[i] || '').filter(Boolean).join(' / ').substring(0,70);
+    const sel = buildFieldSelect(detected, i);
+    const rowClass = detected ? 'style="background:rgba(34,197,94,.04)"' : '';
     tbody.insertAdjacentHTML('beforeend',
-      `<tr>
+      `<tr ${rowClass}>
         <td style="color:var(--muted)">${i}</td>
         <td><strong>${h}</strong></td>
-        <td><select onchange="updateMap(${i},this.value)">${opts}</select></td>
+        <td>${sel}</td>
         <td class="sample-val">${sample}</td>
        </tr>`);
   });
+  // Show summary of auto-detected mappings
+  const mapped = Object.values(_colMap).filter(Boolean).length;
+  document.getElementById('map-summary').textContent =
+    mapped ? `✓ ${mapped} columns auto-detected` : 'No columns detected — adjust manually';
 }
 function updateMap(idx, val) {
   if (val) _colMap[String(idx)] = val;
