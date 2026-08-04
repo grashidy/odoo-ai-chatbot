@@ -275,7 +275,11 @@ def run_tool(name, args):
         return json.dumps({"error": err, "hint": "Try odoo_get_fields to check available fields"})
 
 # ── System prompt ──────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are an AI assistant for Odoo 18 (Real Estate, Construction, HR, Procurement). Reply in the same language as the user (Arabic or English).
+def get_system_prompt():
+    today_date = _date.today().isoformat()   # e.g. "2026-08-05"
+    return f"""You are an AI assistant for Odoo 18 (Real Estate, Construction, HR, Procurement). Reply in the same language as the user (Arabic or English).
+
+TODAY = {today_date}  ← use this exact string for any date comparison domains (e.g. [['date_to','<','{today_date}']])
 
 RULES:
 - Use tools for real data. Never guess or fabricate.
@@ -286,7 +290,7 @@ RULES:
 - Format numbers with commas. Currency = EGP. Use markdown tables.
 - On field error → odoo_get_fields once, then retry. Multi-company context is automatic.
 
-CHARTS: CHART_BAR:{"title":"T","labels":["A","B"],"data":[10,20]}  CHART_PIE:{"title":"T","labels":["A"],"data":[1]}
+CHARTS: CHART_BAR:{{"title":"T","labels":["A","B"],"data":[10,20]}}  CHART_PIE:{{"title":"T","labels":["A"],"data":[1]}}
 
 ══ CONSTRUCTION MODELS — use ONLY these for any construction/project question ══
 
@@ -296,14 +300,20 @@ project.project  →  construction projects
           total_planned_cost, total_actual_cost
   NOTE: fetch ALL these fields in ONE call — never call project.project twice
 
-main.project.plan.operation  →  construction plan milestones (top-level)
-  Fields: name, project_id, date (milestone date), plan_type, user_id, sub_plan_count
+main.project.plan.operation  →  construction plan milestones (top-level grouping)
+  Fields: name, project_id, plan_type, user_id, sub_plan_count
   plan_type values: subcontract | raw_material | assets | labor | misc
-  NOTE: NO date_start/date_end/progress/state fields on this model
+  ⚠ WARNING: the "date" field = system creation timestamp (auto-set = same as create_date) — NOT a user-set deadline
+  ⚠ NEVER use "date" on this model to determine behind-schedule status — it is meaningless for scheduling
+  NOTE: NO state/progress/completion field — cannot determine done/overdue from this model alone
+  → For "behind schedule" milestones: query sub.project.plan.operation and use main_plan_id to identify parent
 
-sub.project.plan.operation  →  sub-operations under a milestone
-  Fields: name, project_id, main_plan_id, date_from, date_to, plan_type, user_id
-  NOTE: NO date_start/date_end/progress/state fields on this model
+sub.project.plan.operation  →  sub-operations under a milestone — ONLY model with real date ranges
+  Fields: name, project_id, main_plan_id, date_from (Period From), date_to (Period To), plan_type, user_id
+  date_from / date_to = user-set planned work period dates (YYYY-MM-DD format, set by project managers)
+  ▶ "Behind schedule / overdue" = date_to < TODAY ({today_date}) AND date_to != False
+  Domain for overdue: [{{"date_to","<","{today_date}"}},{{"date_to","!=",False}}]
+  NOTE: NO state/progress/completion field on this model either
 
 project.detailed.item.line  →  client BOQ line items
   Fields: name, project_id, quantity, unit_cost, total_cost (=Total Price), main_item_line_id, boq_item_id
@@ -363,6 +373,8 @@ res.partner         → partners/vendors/clients (name,phone,email,is_company)
 ══ ROUTING — which model to answer each question ══
 • projects / list of projects / مشاريع                       → project.project (NEVER project.rs.phase)
 • plan / milestones / schedule / خطة / مراحل                 → main.project.plan.operation + sub.project.plan.operation
+• behind schedule / overdue / متأخر / delay / تأخير          → sub.project.plan.operation domain [{{"date_to","<","{today_date}"}},{{"date_to","!=",False}}]
+                                                               then identify parent milestone via main_plan_id field
 • client BOQ / مقايسة العميل                                 → project.detailed.item.line (total_cost for amounts)
 • subcontractor BOQ items / بنود الباطن                      → project.subcontracting.boq.line
 • BOQ contracts / subcontractor contracts / عقود المقاولين   → subcontractor.contract (use contract_value)
@@ -381,7 +393,9 @@ CRITICAL RULES:
 - COUNTING: odoo_read_group aggregates=[] gives count automatically; never add id:count
 - Domain cannot compare two fields — fetch rows and filter in the answer text
 - Call each model ONLY ONCE per turn — include all needed fields in a single call
-- Many2one fields return as plain strings (e.g. project_id = "INFINITY MALL - Phase 1") — use them directly in the table"""
+- Many2one fields return as plain strings (e.g. project_id = "INFINITY MALL - Phase 1") — use them directly in the table
+- BEHIND SCHEDULE: ONLY sub.project.plan.operation has real date ranges; use domain [{{"date_to","<","{today_date}"}},{{"date_to","!=",False}}]
+  main.project.plan.operation.date = creation timestamp only — NEVER use it for overdue/schedule checks"""
 
 # ── Flask app ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -410,7 +424,7 @@ def chat():
         try:
             # Keep only last 4 messages from history to limit token usage
             recent = history[-4:] if len(history) > 4 else history
-            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            messages = [{"role": "system", "content": get_system_prompt()}]
             for m in recent:
                 messages.append({"role": m["role"], "content": m.get("content") or ""})
 
@@ -1318,7 +1332,7 @@ def _run_ai_sync(user_text):
         return "❌ AI API key not configured on the server."
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": get_system_prompt()},
         {"role": "user",   "content": user_text},
     ]
 
