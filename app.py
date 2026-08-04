@@ -29,13 +29,14 @@ DEFAULT_GROQ_KEY = (
 )
 
 def _make_chat_client(override_key=None):
-    """Return (OpenAI-compatible client, model_name) for chat."""
-    key = override_key or GEMINI_API_KEY or DEFAULT_GROQ_KEY
+    """Return (OpenAI-compatible client, model_name) for chat.
+    Server GEMINI_API_KEY always wins — ignores per-request override key."""
+    if GEMINI_API_KEY:
+        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), AI_MODEL
+    # No Gemini key: fall back to per-request key or Groq env key
+    key = override_key or DEFAULT_GROQ_KEY
     if not key:
         return None, None
-    if GEMINI_API_KEY and override_key in (None, GEMINI_API_KEY):
-        return OpenAI(api_key=key, base_url=GEMINI_BASE_URL), AI_MODEL
-    # Fallback to Groq-compatible if no Gemini key
     return OpenAI(api_key=key, base_url="https://api.groq.com/openai/v1"), "llama-3.1-8b-instant"
 
 # ── Odoo connection ────────────────────────────────────────────────────────────
@@ -175,7 +176,7 @@ def _coerce_list(raw):
         return [raw] if raw else []
     return []
 
-_MAX_RESULT_CHARS = 3500  # truncate giant tool results so Groq doesn't choke
+_MAX_RESULT_CHARS = 2000  # truncate giant tool results to stay under TPM limits
 
 def _truncate_result(text):
     if len(text) > _MAX_RESULT_CHARS:
@@ -458,8 +459,8 @@ def chat():
 
     def generate():
         try:
-            # Keep only last 6 messages from history to limit token usage
-            recent = history[-6:] if len(history) > 6 else history
+            # Keep only last 4 messages from history to limit token usage
+            recent = history[-4:] if len(history) > 4 else history
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             for m in recent:
                 messages.append({"role": m["role"], "content": m.get("content") or ""})
