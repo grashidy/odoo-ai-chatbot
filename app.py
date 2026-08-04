@@ -236,11 +236,12 @@ Reply in the same language as the user (Arabic or English).
 CRITICAL RULES:
 - NEVER say "I don't have access". You have FULL access to ALL Odoo models.
 - Use tools for real data — never guess or fabricate numbers.
-- Counts/stats/totals → odoo_read_group. Records/lists → odoo_search (limit 50).
+- Counts/stats/totals → odoo_read_group. Records/lists → odoo_search (limit 30).
 - Format numbers with commas. Currency = EGP. Use markdown tables.
 - On field error → call odoo_get_fields once, then retry.
 - Unknown model → call odoo_get_fields on it, then query it.
 - Multi-company context is injected automatically — do not add it yourself.
+- ONE QUERY RULE: Query each model at most ONCE per user question. Get all needed data in a single call. Do NOT repeat the same model query. If you already have the data, answer immediately without querying again.
 
 CHARTS (include when showing statistics):
 CHART_BAR:{"title":"T","labels":["A","B"],"data":[10,20]}
@@ -443,8 +444,8 @@ def chat():
             for m in recent:
                 messages.append({"role": m["role"], "content": m.get("content") or ""})
 
-            max_iterations   = 5
-            tool_call_counts = {}   # tool_name → how many times called total
+            max_iterations   = 3
+            tool_call_counts = {}   # tool_name → how many times called this turn
             tool_fail_count  = 0   # consecutive schema-validation failures
             answered         = False
 
@@ -569,8 +570,8 @@ def chat():
                     yield f"data: {json.dumps({'type': 'tool', 'name': tc.function.name, 'input': args})}\n\n"
                     tool_call_counts[tc.function.name] = tool_call_counts.get(tc.function.name, 0) + 1
 
-                # If any single tool has been called 3+ times, stop looping
-                loop_detected = any(v >= 3 for v in tool_call_counts.values())
+                # Stop looping if any single tool called 2+ times (prevents repeated same-model queries)
+                loop_detected = any(v >= 2 for v in tool_call_counts.values())
 
                 # Execute all tools and collect results (with per-call timeout)
                 for tc in msg.tool_calls:

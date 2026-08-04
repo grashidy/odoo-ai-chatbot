@@ -914,22 +914,29 @@ function buildReportModule(rawTableHtml, headers, bodyRows) {
   const tblHtml = `<div class="rm-table-wrap"><table class="rm-table" id="${tblId}"><thead><tr>${thHtml}</tr></thead><tbody>${tbHtml}</tbody></table></div>`;
 
   // ── Export pane ──
+  const reportLabel = headers.slice(0,2).join(' · ') || 'Odoo Report';
+  const waIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>`;
   const exportHtml = `
     <div class="rm-export-grid">
-      <button class="rm-export-btn excel" onclick="exportRmExcel('${tblId}','report')">
+      <button class="rm-export-btn excel" onclick="exportRmExcel('${tblId}','${reportLabel}')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M3 5h2V3H3v2zm0 4h2V7H3v2zm0 4h2v-2H3v2zm0 4h2v-2H3v2zm0 4h2v-2H3v2zm4-16h14v2H7V5zm0 4h14V7H7v2zm0 4h14v-2H7v2zm0 4h14v-2H7v2zm0 4h14v-2H7v2z"/></svg>
-        Export Excel
+        Download Excel
       </button>
-      <button class="rm-export-btn csv" onclick="exportRmCSV('${tblId}','report')">
+      <button class="rm-export-btn csv" onclick="exportRmCSV('${tblId}','${reportLabel}')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
-        Export CSV
+        Download CSV
       </button>
-      <button class="rm-export-btn wa" onclick="shareRmWhatsApp('${tblId}','report')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-        WhatsApp
+      <button class="rm-export-btn wa" onclick="shareRmWhatsApp('${tblId}','${reportLabel}')">
+        ${waIcon} Share via WhatsApp
       </button>
     </div>
-    <div class="rm-export-note">Exports the data table shown in the Table tab.</div>`;
+    <div class="rm-export-note" style="margin-top:12px;padding:10px 12px;background:var(--card2);border:1px solid var(--border);border-radius:7px;font-size:11.5px;color:var(--text2);line-height:1.7">
+      <strong style="color:var(--text);display:block;margin-bottom:5px">📲 WhatsApp share will send:</strong>
+      🏗️ Report title + date &amp; record count<br>
+      📋 All ${bodyRows.length} rows formatted as a table<br>
+      📊 Totals for all numeric columns<br>
+      <span style="color:var(--text3);font-size:11px;margin-top:4px;display:block">Opens WhatsApp Web → choose a contact → send. On mobile it opens the WhatsApp app directly.</span>
+    </div>`;
 
   // Register chart data for lazy init
   _rmChartPending[moduleId] = { headers, rows: bodyRows };
@@ -969,12 +976,47 @@ function exportRmCSV(tblId, title) {
   a.download = (title||'export') + '_' + new Date().toISOString().slice(0,10) + '.csv';
   a.click();
 }
-function shareRmWhatsApp(tblId, title) {
+function shareRmWhatsApp(tblId, reportTitle) {
   const tbl = document.getElementById(tblId);
   if (!tbl) return;
-  const lines = Array.from(tbl.querySelectorAll('tr'))
-    .map(r => Array.from(r.querySelectorAll('th,td')).map(c => c.innerText.trim()).join(' | '));
-  window.open('https://wa.me/?text=' + encodeURIComponent('*' + (title||'Report') + '*\n' + lines.join('\n')), '_blank');
+  const rows = Array.from(tbl.querySelectorAll('tr'));
+  const headers = Array.from(rows[0].querySelectorAll('th')).map(c => c.innerText.trim());
+  const bodyRows = rows.slice(1).map(r => Array.from(r.querySelectorAll('td')).map(c => c.innerText.trim()));
+
+  // Build header separator line
+  const sepLine = headers.map(h => '─'.repeat(Math.max(h.length, 8))).join('─┼─');
+  const headerLine = headers.join(' │ ');
+
+  // Format each row
+  const dataLines = bodyRows.map(r => r.join(' │ '));
+
+  // Build numeric summary
+  const numSums = {};
+  headers.forEach((h, ci) => {
+    const vals = bodyRows.map(r => parseFloat((r[ci]||'').replace(/,/g,'')));
+    const valid = vals.filter(v => !isNaN(v));
+    if (valid.length > 0) numSums[h] = valid.reduce((a,b) => a+b, 0);
+  });
+  const summaryLines = Object.entries(numSums)
+    .map(([k,v]) => `  • ${k}: *${v >= 1e6 ? (v/1e6).toFixed(2)+'M' : v >= 1e3 ? (v/1e3).toFixed(1)+'K' : v.toLocaleString()}*`);
+
+  const now = new Date().toLocaleString('en-GB', {day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  const title = reportTitle && reportTitle !== 'report' ? reportTitle : 'Odoo Report';
+
+  const msg = [
+    `🏗️ *${title}*`,
+    `📅 ${now}  |  🔢 ${bodyRows.length} records`,
+    ``,
+    headerLine,
+    sepLine,
+    ...dataLines,
+    ``,
+    summaryLines.length ? `📊 *Totals:*\n${summaryLines.join('\n')}` : '',
+    ``,
+    `_Exported from Odoo AI Assistant_`
+  ].filter(l => l !== undefined).join('\n');
+
+  window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
 }
 
 /* ── Markdown renderer ───────────────────────────────────────────── */
