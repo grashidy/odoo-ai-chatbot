@@ -428,18 +428,22 @@ async function doImport() {
 
     let html = `
       <div class="gap12" style="margin-bottom:16px">
-        <span class="badge badge-green">✓ ${d.imported} rows imported</span>
-        ${d.skipped ? `<span class="badge badge-amber">⟳ ${d.skipped} rows skipped (no description)</span>` : ''}
+        <span class="badge badge-green">✓ ${d.imported} BOQ lines imported</span>
+        ${d.sections ? `<span class="badge badge-green">✓ ${d.sections} sections (main.item.line)</span>` : ''}
+        ${d.skipped ? `<span class="badge badge-amber">⟳ ${d.skipped} rows skipped</span>` : ''}
         ${d.errors?.length ? `<span class="badge badge-red">✗ ${d.errors.length} errors</span>` : ''}
       </div>`;
+    if (d.models_used?.length) {
+      html += `<p style="color:var(--muted);font-size:.85rem;margin-bottom:8px">Models written: <strong style="color:var(--accent2)">${d.models_used.join(', ')}</strong></p>`;
+    }
     if (d.boq_contract_id) {
-      html += `<p style="color:var(--muted);font-size:.88rem">BOQ Contract ID created: <strong style="color:var(--text)">${d.boq_contract_id}</strong></p>`;
+      html += `<p style="color:var(--muted);font-size:.85rem">BOQ Contract ID: <strong style="color:var(--text)">${d.boq_contract_id}</strong></p>`;
     }
     if (d.errors?.length) {
-      html += `<div class="alert alert-error mt12"><strong>Errors:</strong><br>${d.errors.join('<br>')}</div>`;
+      html += `<div class="alert alert-error mt12"><strong>Errors (first 10):</strong><br>${d.errors.join('<br>')}</div>`;
     }
-    if (d.imported > 0) {
-      html += `<div class="alert alert-success mt12">Successfully imported <strong>${d.imported}</strong> BOQ lines into Odoo. You can now query them in the AI Chat.</div>`;
+    if (d.imported > 0 || d.sections > 0) {
+      html += `<div class="alert alert-success mt12">Import complete — <strong>${d.imported}</strong> BOQ lines + <strong>${d.sections||0}</strong> section headers written to Odoo. Query them in the AI Chat.</div>`;
     }
     document.getElementById('result-box').innerHTML = html;
     goStep(4);
