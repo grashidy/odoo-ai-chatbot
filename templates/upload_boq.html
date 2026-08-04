@@ -174,27 +174,41 @@ select:focus, input:focus { border-color: var(--accent); }
     </div>
     <input type="file" id="file-input" accept=".xlsx,.xls"/>
 
-    <div class="row2 mt12">
-      <div>
-        <label>Project *</label>
-        <select id="project-select">
-          <option value="">Loading projects…</option>
-        </select>
-      </div>
-      <div>
-        <label>Groq API Key (optional — uses server key if blank)</label>
-        <input type="password" id="api-key-input" placeholder="gsk_…"/>
-      </div>
+    <div class="mt12">
+      <label>Project *</label>
+      <select id="project-select">
+        <option value="">Loading projects…</option>
+      </select>
     </div>
 
     <div class="mt12">
-      <label>Import into Odoo models:</label>
-      <div class="check-group mt12">
-        <label title="Requires an existing BOQ contract on the project — uncheck if none exists">
-          <input type="checkbox" id="chk-boq-line"> project.subcontracting.boq.line
-          <span style="color:var(--amber);font-size:.75rem">(needs contract)</span>
+      <label>Import into Odoo models — select all that apply:</label>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.2);border-radius:8px;padding:10px 14px">
+          <input type="checkbox" id="chk-detail-line" checked style="accent-color:var(--accent);width:16px;height:16px;margin-top:2px;flex-shrink:0"/>
+          <div>
+            <div style="font-size:.9rem;font-weight:600;color:var(--text)">project.detailed.item.line</div>
+            <div style="font-size:.78rem;color:var(--muted);margin-top:2px">Client BOQ — line items billed to the project owner (quantities, unit cost, total cost)</div>
+          </div>
         </label>
-        <label><input type="checkbox" id="chk-detail-line" checked> project.detailed.item.line</label>
+
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;background:rgba(124,106,247,.06);border:1px solid rgba(124,106,247,.2);border-radius:8px;padding:10px 14px">
+          <input type="checkbox" id="chk-main-line" checked style="accent-color:var(--accent);width:16px;height:16px;margin-top:2px;flex-shrink:0"/>
+          <div>
+            <div style="font-size:.9rem;font-weight:600;color:var(--text)">project.main.item.line</div>
+            <div style="font-size:.78rem;color:var(--muted);margin-top:2px">BOQ Section Headers — category / division rows that group the detailed lines (name only)</div>
+          </div>
+        </label>
+
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.18);border-radius:8px;padding:10px 14px">
+          <input type="checkbox" id="chk-boq-line" style="accent-color:var(--accent);width:16px;height:16px;margin-top:2px;flex-shrink:0"/>
+          <div>
+            <div style="font-size:.9rem;font-weight:600;color:var(--text)">project.subcontracting.boq.line <span style="color:var(--amber);font-size:.75rem;font-weight:400">(optional)</span></div>
+            <div style="font-size:.78rem;color:var(--muted);margin-top:2px">Subcontractor BOQ — vendor scope items; only enable if this document is a <strong style="color:var(--amber)">subcontracting</strong> BOQ template</div>
+          </div>
+        </label>
+
       </div>
     </div>
 
@@ -380,7 +394,7 @@ async function parseFile() {
 
   const fd = new FormData();
   fd.append('file', fi.files[0]);
-  fd.append('api_key', document.getElementById('api-key-input').value.trim());
+  fd.append('api_key', '');
 
   try {
     const r = await fetch(BASE + '/parse-boq', { method: 'POST', body: fd });
@@ -464,8 +478,9 @@ async function doImport() {
   clearAlert();
 
   const models = [];
-  if (document.getElementById('chk-boq-line').checked)    models.push('project.subcontracting.boq.line');
   if (document.getElementById('chk-detail-line').checked) models.push('project.detailed.item.line');
+  if (document.getElementById('chk-main-line').checked)   models.push('project.main.item.line');
+  if (document.getElementById('chk-boq-line').checked)    models.push('project.subcontracting.boq.line');
   if (!models.length) { showAlert('Select at least one target model'); btn.disabled=false; sp.classList.add('hidden'); return; }
 
   const project_id = parseInt(document.getElementById('project-select').value);
