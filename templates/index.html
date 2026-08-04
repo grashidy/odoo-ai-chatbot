@@ -960,11 +960,13 @@ function buildReportModule(rawTableHtml, headers, bodyRows) {
   const tblId    = 'rmtbl_' + chartCounter;
 
   // ── KPI pane ──
-  const dateHdrRe  = /date|time|تاريخ|وقت|start|end|created|deadline/i;
-  const dateValRe  = /^\d{4}[-\/]\d{2}[-\/]\d{2}|^\d{2}[-\/]\d{2}[-\/]\d{4}/;
+  const dateHdrRe = /date|time|تاريخ|وقت|start|end|created|deadline/i;
+  const idHdrRe   = /\bid\b|_id$|\bno\.?\b|\bseq\b|\brank\b|^\s*#/i;
+  const dateValRe = /^\d{4}[-\/]\d{2}[-\/]\d{2}|^\d{2}[-\/]\d{2}[-\/]\d{4}/;
   const numCols = {};
   headers.forEach((h, ci) => {
     if (dateHdrRe.test(h)) return;
+    if (idHdrRe.test(h)) return;   // skip ID / sequence columns — summing IDs is meaningless
     const vals = bodyRows.map(r => String(r[ci] || '').trim());
     if (vals.some(v => dateValRe.test(v))) return;
     let sum = 0, isNum = false;

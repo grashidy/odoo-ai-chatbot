@@ -182,6 +182,18 @@ def _truncate_result(text):
         return text[:_MAX_RESULT_CHARS] + f'\n... [truncated — {len(text)} chars total, showing first {_MAX_RESULT_CHARS}]'
     return text
 
+def _flatten_m2o(val):
+    """Convert Odoo many2one [id, "Name"] tuples to just the display name string."""
+    if isinstance(val, (list, tuple)) and len(val) == 2 and isinstance(val[0], int) and isinstance(val[1], str):
+        return val[1]
+    return val
+
+def _flatten_record(rec):
+    """Flatten all many2one fields in a record dict so the AI sees plain strings."""
+    if isinstance(rec, dict):
+        return {k: _flatten_m2o(v) for k, v in rec.items()}
+    return rec
+
 def run_tool(name, args):
     try:
         if name == "odoo_search":
@@ -195,7 +207,8 @@ def run_tool(name, args):
             if args.get("order"):
                 kwargs["order"] = args["order"]
             results = odoo_call(args["model"], "search_read", [domain], kwargs)
-            return _truncate_result(json.dumps(results, ensure_ascii=False, default=str))
+            flat = [_flatten_record(r) for r in results]
+            return _truncate_result(json.dumps(flat, ensure_ascii=False, default=str))
 
         elif name == "odoo_count":
             domain = _coerce_domain(args.get("domain", []))
@@ -235,7 +248,7 @@ def run_tool(name, args):
                     elif k == "__domain":
                         continue
                     else:
-                        item[k] = v
+                        item[k] = _flatten_m2o(v)
                 cleaned.append(item)
             return _truncate_result(json.dumps(cleaned, ensure_ascii=False, default=str))
 
@@ -297,8 +310,9 @@ subcontractor.contract  →  subcontractor contracts — PRIMARY financial model
 subcontractor.contract.line  →  individual contract line items
   Fields: name, contract_id, project_id, unit_price, total_price, billed_qty, remain_qty
 
-boq.contract  →  BOQ contract grouping only — NO financial data, NO state field
+boq.contract  →  BOQ scope config record — EMPTY in database (0 records), NO financial data
   Fields: name, project_id, partner_id
+  ⚠ NEVER use boq.contract for any financial or contract-value queries — it has no money fields and no data
 
 construction.advance.payment  →  advance payments to contractors/clients
   Fields: name, partner_id, amount, state, project_id, due_amount, settled_amount, payment_type
@@ -334,25 +348,27 @@ hr.department       → departments (name,manager_id)
 res.partner         → partners/vendors/clients (name,phone,email,is_company)
 
 ══ ROUTING — which model to answer each question ══
-• projects / list of projects / مشاريع             → project.project (NEVER project.rs.phase)
-• plan / milestones / schedule / خطة / مراحل       → main.project.plan.operation + sub.project.plan.operation
-• client BOQ / مقايسة العميل                       → project.detailed.item.line (total_cost for amounts)
-• subcontractor BOQ items / بنود الباطن            → project.subcontracting.boq.line
-• contract totals / قيمة العقد / مبالغ العقود      → subcontractor.contract (use contract_value)
-• advance payments / مدفوعات مقدمة                → construction.advance.payment
-• RE units / وحدات عقارية / شقق / عقارات          → rs.dev.unit
-• purchases / مشتريات                             → purchase.order
-• employees / موظفين                              → hr.employee
+• projects / list of projects / مشاريع                       → project.project (NEVER project.rs.phase)
+• plan / milestones / schedule / خطة / مراحل                 → main.project.plan.operation + sub.project.plan.operation
+• client BOQ / مقايسة العميل                                 → project.detailed.item.line (total_cost for amounts)
+• subcontractor BOQ items / بنود الباطن                      → project.subcontracting.boq.line
+• BOQ contracts / subcontractor contracts / عقود المقاولين   → subcontractor.contract (use contract_value)
+• contract value / contract total / قيمة العقد               → subcontractor.contract (use contract_value)
+• advance payments / مدفوعات مقدمة                          → construction.advance.payment
+• RE units / وحدات عقارية / شقق / عقارات                    → rs.dev.unit
+• purchases / مشتريات                                       → purchase.order
+• employees / موظفين                                        → hr.employee
 
 CRITICAL RULES:
 - project.rs.phase and project.rs.unit are REAL ESTATE ONLY — NEVER for construction
 - rs.dev.unit is the correct RE sales model (project.rs.unit has NO price/status data)
-- For contract financials: always use subcontractor.contract.contract_value
-- boq.contract has NO financial fields — use subcontractor.contract instead
+- For ALL contract/financial queries: use subcontractor.contract with contract_value field
+- boq.contract is EMPTY (no records) — NEVER use it for any query, it will return nothing
 - construction.advance.payment state = "run" (not "running")
 - COUNTING: odoo_read_group aggregates=[] gives count automatically; never add id:count
 - Domain cannot compare two fields — fetch rows and filter in the answer text
-- Call each model ONLY ONCE per turn — include all needed fields in a single call"""
+- Call each model ONLY ONCE per turn — include all needed fields in a single call
+- Many2one fields return as plain strings (e.g. project_id = "INFINITY MALL - Phase 1") — use them directly in the table"""
 
 # ── Flask app ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
