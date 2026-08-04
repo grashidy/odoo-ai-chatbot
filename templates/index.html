@@ -240,6 +240,7 @@ header::after {
 }
 
 .cat-card.c-re     { --cat-color: #2a8de0; }
+.cat-card.c-proj   { --cat-color: #1a6fbd; }
 .cat-card.c-boq    { --cat-color: #b8820a; }
 .cat-card.c-sub    { --cat-color: #c96220; }
 .cat-card.c-pay    { --cat-color: #0d9e6e; }
@@ -661,6 +662,24 @@ header::after {
       </div>
     </div>
 
+    <!-- Construction Projects -->
+    <div class="cat-card c-proj">
+      <div class="cat-accent-bar"></div>
+      <div class="cat-card-top">
+        <div class="cat-icon-box">🏗️</div>
+        <div>
+          <div class="cat-name">Construction Projects</div>
+          <div class="cat-model">project.project · All Projects</div>
+        </div>
+      </div>
+      <div class="cat-qs">
+        <div class="suggestion" onclick="suggest(this)">List all construction projects with their status and assigned manager</div>
+        <div class="suggestion ar" onclick="suggest(this)">اعرض قائمة المشاريع الإنشائية مع حالة كل مشروع ومديره</div>
+        <div class="suggestion" onclick="suggest(this)">How many active construction projects are there and what are their names?</div>
+        <div class="suggestion ar" onclick="suggest(this)">ما هي المشاريع التي لديها تواريخ انتهاء قريبة أو متأخرة؟</div>
+      </div>
+    </div>
+
     <!-- Construction Plans -->
     <div class="cat-card c-plan">
       <div class="cat-accent-bar"></div>
@@ -674,7 +693,7 @@ header::after {
       <div class="cat-qs">
         <div class="suggestion ar" onclick="suggest(this)">اعرض خطة المشروع الرئيسية بالمراحل ونسبة الإنجاز لكل مرحلة</div>
         <div class="suggestion" onclick="suggest(this)">Show construction milestones with planned vs actual dates and progress %</div>
-        <div class="suggestion" onclick="suggest(this)">Which project phases or operations are delayed or behind schedule?</div>
+        <div class="suggestion" onclick="suggest(this)">Which construction milestones or operations are delayed or behind schedule?</div>
         <div class="suggestion ar" onclick="suggest(this)">اعرض العمليات الفرعية لكل مرحلة مع مواعيدها وحالة التنفيذ</div>
       </div>
     </div>
