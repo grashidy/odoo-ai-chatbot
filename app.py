@@ -860,7 +860,7 @@ def import_boq():
 
     def _err(e):
         s = getattr(e, "faultString", None) or str(e)
-        return s.replace("<", "[").replace(">", "]")[:250]
+        return s.replace("<", "[").replace(">", "]")[:500]
 
     def _to_int_id(v):
         """Convert a cell value like '537' or '537.0' to int, or None."""

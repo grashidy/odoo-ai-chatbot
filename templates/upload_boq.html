@@ -190,7 +190,10 @@ select:focus, input:focus { border-color: var(--accent); }
     <div class="mt12">
       <label>Import into Odoo models:</label>
       <div class="check-group mt12">
-        <label><input type="checkbox" id="chk-boq-line" checked> project.subcontracting.boq.line</label>
+        <label title="Requires an existing BOQ contract on the project — uncheck if none exists">
+          <input type="checkbox" id="chk-boq-line"> project.subcontracting.boq.line
+          <span style="color:var(--amber);font-size:.75rem">(needs contract)</span>
+        </label>
         <label><input type="checkbox" id="chk-detail-line" checked> project.detailed.item.line</label>
       </div>
     </div>
