@@ -573,9 +573,10 @@ header::after {
 
 <!-- ── Settings ──────────────────────────────────────────────────── -->
 <div id="settings-panel">
-  <label>Groq API Key:</label>
-  <input type="password" id="api-key-input" placeholder="gsk_…"/>
+  <label>API Key <span style="color:var(--text3)">(optional — server key active)</span>:</label>
+  <input type="password" id="api-key-input" placeholder="Leave empty — server Gemini key is configured"/>
   <button class="btn-save" onclick="saveKey()">Save</button>
+  <button class="btn-save" style="background:var(--border2);color:var(--text2)" onclick="clearKey()">Clear</button>
 </div>
 
 <!-- ── Welcome template ──────────────────────────────────────────── -->
@@ -784,6 +785,12 @@ function saveKey() {
   localStorage.setItem('groq_key', apiKey);
   document.getElementById('settings-panel').style.display = 'none';
   toast('API key saved ✓');
+}
+function clearKey() {
+  apiKey = '';
+  localStorage.removeItem('groq_key');
+  document.getElementById('api-key-input').value = '';
+  toast('Key cleared — using server key ✓');
 }
 
 /* ── Toast ───────────────────────────────────────────────────────── */
