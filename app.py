@@ -639,6 +639,40 @@ def parse_boq():
         logging.exception("Unhandled error in parse_boq")
         return jsonify({"error": f"Server error: {e}"}), 500
 
+_BOQ_KEYWORD_RULES = [
+    # (field_name, keywords_that_match_if_found_in_header_lowercase)
+    ("name",       ["البند", "بيان", "الوصف", "وصف", "description", "item desc", "task code desc",
+                    "resource desc", "work desc", "item name", "activity"]),
+    ("item_code",  ["القسم", "قسم", "كود", "رقم البند", "item code", "task code", "ref", "code",
+                    "رقم", "بند رقم"]),
+    ("quantity",   ["الكمية", "كمية", "كميه", "quantity", "qty", "كميات"]),
+    ("unit",       ["الوحدة", "وحدة", "وحده", "unit of", "uom", "task code unit"]),
+    ("unit_price", ["الفئة", "فئة", "سعر الوحدة", "سعر", "unit price", "unit rate", "rate",
+                    "price", "unit cost"]),
+    ("work_type",  ["نوع العمل", "work type", "category", "type of work"]),
+    ("notes",      ["ملاحظات", "ملاحظه", "notes", "remarks", "comments"]),
+]
+_BOQ_SKIP_KEYWORDS = ["اجمالي", "إجمالي", "total", "subtotal", "amount", "#n/a", "cost code",
+                       "wastage", "usage", "resource code"]
+
+def _keyword_map_boq(headers):
+    """Map column indices to BOQ field names using Arabic/English keywords."""
+    result = {}
+    claimed_fields = set()
+    for i, h in enumerate(headers):
+        hl = h.lower().strip()
+        # skip obvious total/irrelevant columns
+        if any(kw in hl for kw in _BOQ_SKIP_KEYWORDS):
+            continue
+        for field, keywords in _BOQ_KEYWORD_RULES:
+            if field in claimed_fields:
+                continue
+            if any(kw.lower() in hl for kw in keywords):
+                result[str(i)] = field
+                claimed_fields.add(field)
+                break
+    return result
+
 def _parse_boq_impl():
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
@@ -685,23 +719,20 @@ def _parse_boq_impl():
     if not data_rows:
         return jsonify({"error": "No data rows found after the header"}), 400
 
-    # Ask AI to map column headers → Odoo BOQ field names
-    column_map = {}
+    # Step 1: keyword-based mapping (works offline, handles Arabic + English)
+    column_map = _keyword_map_boq(headers)
+
+    # Step 2: AI mapping (enhances/overrides keyword map if AI is available)
     sample = data_rows[:3]
     prompt = (
-        "I have an Excel BOQ (Bill of Quantities) tender document.\n"
-        f"Column headers (0-indexed): {list(enumerate(headers))}\n"
-        f"Sample rows: {sample}\n\n"
-        "Map each column INDEX to one of these Odoo field names:\n"
-        "  name        → item description / work item name (required)\n"
-        "  item_code   → item number / reference code\n"
-        "  quantity    → planned/BOQ quantity (numeric)\n"
-        "  unit        → unit of measure (m2, m3, kg, ls, etc)\n"
-        "  unit_price  → unit rate / unit price (numeric)\n"
-        "  work_type   → type of work (supply / install / civil / labor / etc)\n"
-        "  notes       → remarks or notes\n\n"
-        "Return ONLY valid JSON like: {\"0\": \"item_code\", \"1\": \"name\", \"3\": \"quantity\", \"4\": \"unit_price\"}\n"
-        "Skip columns that don't map to any field (totals, subtotals, row numbers)."
+        "Excel BOQ file columns (index: header):\n"
+        + "\n".join(f"  {i}: {h}" for i, h in enumerate(headers))
+        + f"\n\nSample row: {sample[0] if sample else []}\n\n"
+        "Map each useful column INDEX to ONE of these field names:\n"
+        "  name=item description, item_code=code/ref, quantity=qty, unit=UOM, unit_price=rate/price, work_type=category, notes=remarks\n\n"
+        "Rules: map البند/description→name, الكمية/qty→quantity, الوحدة/unit→unit, الفئة/rate→unit_price, القسم/code→item_code.\n"
+        "SKIP totals (الإجمالي/total/subtotal) and #N/A columns.\n"
+        "Return ONLY a JSON object like: {\"2\": \"name\", \"3\": \"quantity\", \"4\": \"unit\", \"5\": \"unit_price\"}"
     )
     try:
         _boq_client, _boq_model = _make_chat_client(_boq_override)
@@ -709,15 +740,19 @@ def _parse_boq_impl():
             resp = _boq_client.chat.completions.create(
                 model=_boq_model,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=400, temperature=0,
+                max_tokens=300, temperature=0,
                 timeout=25,
             )
             raw_json = resp.choices[0].message.content.strip()
-            m = re.search(r'\{[^{}]+\}', raw_json, re.DOTALL)
+            # extract JSON — allow multiline
+            m = re.search(r'\{[\s\S]*?\}', raw_json)
             if m:
-                column_map = json.loads(m.group())
+                ai_map = json.loads(m.group())
+                # AI map wins over keyword map
+                column_map.update(ai_map)
+                logging.info("AI column map: %s", ai_map)
     except Exception as e:
-        logging.warning("AI column mapping failed: %s", e)
+        logging.warning("AI column mapping failed (using keyword map): %s", e)
 
     return jsonify({
         "headers": headers,
