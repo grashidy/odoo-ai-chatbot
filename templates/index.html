@@ -1165,8 +1165,7 @@ async function sendMessage() {
   const inp  = document.getElementById('user-input');
   const text = inp.value.trim();
   if (!text) return;
-  const key = apiKey || localStorage.getItem('groq_key') || '';
-  if (!key) { toggleSettings(); toast('Enter your Groq API key first'); return; }
+  const key = localStorage.getItem('groq_key') || '';
   streaming = true;
   document.getElementById('send-btn').disabled = true;
   inp.value = ''; inp.style.height = 'auto';
