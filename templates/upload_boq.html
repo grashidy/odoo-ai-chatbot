@@ -174,11 +174,16 @@ select:focus, input:focus { border-color: var(--accent); }
     </div>
     <input type="file" id="file-input" accept=".xlsx,.xls"/>
 
-    <div class="mt12">
-      <label>Project *</label>
-      <select id="project-select">
-        <option value="">Loading projects…</option>
-      </select>
+    <div class="mt12" style="display:flex;align-items:flex-end;gap:10px">
+      <div style="flex:1">
+        <label>Project *</label>
+        <select id="project-select">
+          <option value="">Loading projects…</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" id="btn-parse" disabled onclick="parseFile()" style="white-space:nowrap;flex-shrink:0">
+        <span id="parse-spinner" class="spinner hidden"></span>Extract BOQ
+      </button>
     </div>
 
     <div class="mt12">
@@ -212,11 +217,6 @@ select:focus, input:focus { border-color: var(--accent); }
       </div>
     </div>
 
-    <div class="mt20">
-      <button class="btn btn-primary" id="btn-parse" disabled onclick="parseFile()">
-        <span id="parse-spinner" class="spinner hidden"></span>Extract BOQ
-      </button>
-    </div>
   </div>
 
   <!-- ── Step 2: Column Mapping ── -->
@@ -304,13 +304,17 @@ document.getElementById('file-input').addEventListener('change', e => {
   if (e.target.files[0]) setFile(e.target.files[0]);
 });
 function setFile(f) {
-  document.getElementById('file-input').files; // keep ref
   document.getElementById('file-name').textContent = '📎 ' + f.name + ' (' + (f.size/1024).toFixed(1) + ' KB)';
-  document.getElementById('btn-parse').disabled = false;
-  // store file on input element
   const dt = new DataTransfer(); dt.items.add(f);
   document.getElementById('file-input').files = dt.files;
+  checkReady();
 }
+function checkReady() {
+  const hasFile = !!document.getElementById('file-input').files[0];
+  const hasProj = !!document.getElementById('project-select').value;
+  document.getElementById('btn-parse').disabled = !(hasFile && hasProj);
+}
+document.getElementById('project-select').addEventListener('change', checkReady);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function showAlert(msg, type='error') {
