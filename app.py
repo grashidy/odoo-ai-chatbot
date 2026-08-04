@@ -679,9 +679,7 @@ _BOQ_KEYWORD_RULES = [
     ("notes",             ["ملاحظات", "resource description", "notes", "remarks"]),
 ]
 _BOQ_SKIP_KEYWORDS = ["#n/a", "cost code", "wastage", "usage", "resource code",
-                       "billed", "remain", "col0", "main item line",  # skip name-only, keep id
-                       ]
-                       "billed", "remain", "col0"]
+                       "billed", "remain", "col0", "main item line"]
 
 def _keyword_map_boq(headers):
     """Map column indices to BOQ field names using Arabic/English keywords."""
