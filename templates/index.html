@@ -864,10 +864,18 @@ function rmSwitch(btn, moduleId, pane) {
   }
 }
 
+function _fmtAxis(v) {
+  if (v >= 1e9) return (v/1e9).toFixed(1).replace(/\.0$/,'') + 'B';
+  if (v >= 1e6) return (v/1e6).toFixed(1).replace(/\.0$/,'') + 'M';
+  if (v >= 1e3) return (v/1e3).toFixed(0) + 'K';
+  return v;
+}
+
 function _initModuleChart(moduleId, headers, rows) {
   const canvas = document.getElementById('chart-canvas-' + moduleId);
   if (!canvas || typeof Chart === 'undefined') return;
-  // Find first label column and first numeric column
+  if (!rows.length) return;
+
   let labelCol = 0, valCols = [];
   rows.forEach(r => {
     r.forEach((v, i) => {
@@ -876,35 +884,72 @@ function _initModuleChart(moduleId, headers, rows) {
       }
     });
   });
-  if (valCols.length === 0) return;
-  const labels = rows.map(r => String(r[labelCol]).slice(0, 28));
-  const datasets = valCols.slice(0, 3).map((ci, di) => ({
-    label: headers[ci] || 'Value',
-    data: rows.map(r => parseFloat(String(r[ci]).replace(/,/g,'')) || 0),
-    backgroundColor: valCols.length === 1
-      ? PAL.slice(0, rows.length).map(c => c + 'cc')
-      : PAL[di] + 'cc',
-    borderColor: valCols.length === 1 ? PAL.slice(0, rows.length) : PAL[di],
-    borderWidth: 1.5, borderRadius: 5
-  }));
-  const chartType = valCols.length === 1 && rows.length <= 8 ? 'doughnut' : 'bar';
+
+  const labels = rows.map(r => String(r[labelCol]).slice(0, 30));
+  let datasets, isSynthetic = false;
+
+  if (valCols.length === 0) {
+    // Text-only table: visualise as one equal slice per item (shows the full set)
+    isSynthetic = true;
+    datasets = [{
+      label: 'Items',
+      data: rows.map(() => 1),
+      backgroundColor: rows.map((_, i) => PAL[i % PAL.length] + 'cc'),
+      borderColor: rows.map((_, i) => PAL[i % PAL.length]),
+      borderWidth: 1.5, hoverOffset: 8
+    }];
+  } else {
+    datasets = valCols.slice(0, 3).map((ci, di) => ({
+      label: headers[ci] || 'Value',
+      data: rows.map(r => parseFloat(String(r[ci]).replace(/,/g,'')) || 0),
+      backgroundColor: valCols.length === 1
+        ? rows.map((_, i) => PAL[i % PAL.length] + 'cc')
+        : PAL[di % PAL.length] + 'cc',
+      borderColor: valCols.length === 1
+        ? rows.map((_, i) => PAL[i % PAL.length])
+        : PAL[di % PAL.length],
+      borderWidth: 1.5, borderRadius: 5, hoverOffset: 8
+    }));
+  }
+
+  // Doughnut for: synthetic/text-only, or single numeric column with ≤ 10 rows
+  const useDoughnut = isSynthetic || (valCols.length === 1 && rows.length <= 10);
+  const chartType   = useDoughnut ? 'doughnut' : 'bar';
+  const smallFont   = rows.length > 8;
+
   new Chart(canvas, {
     type: chartType,
     data: { labels, datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { display: chartType === 'doughnut' || valCols.length > 1,
-          labels: { color: '#527fa8', font: { size: 10.5, family: 'Inter' }, padding: 12 } },
+        legend: {
+          display: useDoughnut,
+          position: 'right',
+          labels: {
+            color: '#527fa8',
+            font: { size: smallFont ? 9 : 10.5, family: 'Inter' },
+            padding: smallFont ? 5 : 12, boxWidth: 10
+          }
+        },
         tooltip: {
           backgroundColor: '#091e38', borderColor: '#1a4a70', borderWidth: 1,
           titleColor: '#c8ddf0', bodyColor: '#527fa8', padding: 8,
-          callbacks: { label: ctx => ' ' + Number(ctx.parsed.y ?? ctx.parsed).toLocaleString() }
+          callbacks: {
+            label: ctx => {
+              const raw = ctx.parsed.y ?? ctx.parsed;
+              if (isSynthetic) return ' ' + ctx.label;
+              return ' ' + Number(raw).toLocaleString();
+            }
+          }
         }
       },
       scales: chartType === 'bar' ? {
         x: { ticks: { color: '#2d4f6e', font: { size: 10 }, maxRotation: 35 }, grid: { color: 'rgba(16,48,78,0.6)' } },
-        y: { ticks: { color: '#2d4f6e', font: { size: 10 } }, grid: { color: 'rgba(16,48,78,0.6)' }, beginAtZero: true }
+        y: {
+          ticks: { color: '#2d4f6e', font: { size: 10 }, callback: v => _fmtAxis(v) },
+          grid: { color: 'rgba(16,48,78,0.6)' }, beginAtZero: true
+        }
       } : {}
     }
   });
@@ -1133,12 +1178,12 @@ function applyCharts(bubble, charts) {
             tooltip: {
               backgroundColor:'#091e38', borderColor:'#1a4a70', borderWidth:1,
               titleColor:'#c8ddf0', bodyColor:'#527fa8', padding:8,
-              callbacks:{ label: ctx => ' ' + ctx.parsed.toLocaleString() }
+              callbacks:{ label: ctx => ' ' + Number(ctx.parsed.y ?? ctx.parsed).toLocaleString() }
             }
           },
           scales: isBar ? {
             x:{ticks:{color:'#2d4f6e',font:{size:10},maxRotation:35},grid:{color:'rgba(16,48,78,0.6)'}},
-            y:{ticks:{color:'#2d4f6e',font:{size:10}},grid:{color:'rgba(16,48,78,0.6)'},beginAtZero:true}
+            y:{ticks:{color:'#2d4f6e',font:{size:10},callback:v=>_fmtAxis(v)},grid:{color:'rgba(16,48,78,0.6)'},beginAtZero:true}
           } : {}
         }
       });
