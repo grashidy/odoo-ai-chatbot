@@ -241,7 +241,9 @@ CRITICAL RULES:
 - On field error → call odoo_get_fields once, then retry.
 - Unknown model → call odoo_get_fields on it, then query it.
 - Multi-company context is injected automatically — do not add it yourself.
-- ONE QUERY RULE: Query each model at most ONCE per user question. Get all needed data in a single call. Do NOT repeat the same model query. If you already have the data, answer immediately without querying again.
+- BATCH TOOLS: Call ALL tools you need in ONE single response — never chain tools across multiple turns. If you need project data AND item costs, call both tools simultaneously in one response.
+- ONE QUERY RULE: Query each model at most ONCE per user question. Do NOT repeat the same model query. If you already have data, answer immediately.
+- AFTER TOOLS: Once you receive tool results, answer immediately. Do NOT call more tools.
 
 CHARTS (include when showing statistics):
 CHART_BAR:{"title":"T","labels":["A","B"],"data":[10,20]}
@@ -457,16 +459,22 @@ def chat():
                 _api_err = [None]
                 _done    = threading.Event()
 
+                # If tool results already exist in message history, force synthesis
+                # by not passing tools — this caps Groq API calls at 2 per question
+                # (1 planning call that batches all tools + 1 synthesis call)
+                _has_tool_results = any(m.get("role") == "tool" for m in messages)
                 def _groq_call():
                     try:
-                        _result[0] = client.chat.completions.create(
+                        call_kw = dict(
                             model="llama-3.1-8b-instant",
                             messages=messages,
-                            tools=TOOLS,
-                            tool_choice="auto",
                             max_tokens=1800,
                             temperature=0.1,
                         )
+                        if not _has_tool_results:
+                            call_kw["tools"] = TOOLS
+                            call_kw["tool_choice"] = "auto"
+                        _result[0] = client.chat.completions.create(**call_kw)
                     except Exception as e:
                         _api_err[0] = e
                     finally:
