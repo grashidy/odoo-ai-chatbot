@@ -31,11 +31,11 @@ DEFAULT_GROQ_KEY = (
 def _make_chat_client(override_key=None):
     """Groq first (reliable tool calling), Gemini as fallback."""
     if DEFAULT_GROQ_KEY:
-        return OpenAI(api_key=DEFAULT_GROQ_KEY, base_url="https://api.groq.com/openai/v1"), "llama-3.1-8b-instant"
+        return OpenAI(api_key=DEFAULT_GROQ_KEY, base_url="https://api.groq.com/openai/v1"), "llama-3.3-70b-versatile"
     if GEMINI_API_KEY:
         return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), "gemini-2.0-flash"
     if override_key:
-        return OpenAI(api_key=override_key, base_url="https://api.groq.com/openai/v1"), "llama-3.1-8b-instant"
+        return OpenAI(api_key=override_key, base_url="https://api.groq.com/openai/v1"), "llama-3.3-70b-versatile"
     return None, None
 
 # ── Odoo connection ────────────────────────────────────────────────────────────
@@ -300,13 +300,15 @@ def get_system_prompt():
 TODAY = {today_date}  ← use this exact string for any date comparison domains (e.g. [['date_to','<','{today_date}']])
 
 RULES:
-- Use tools for real data. Never guess or fabricate.
+- CRITICAL: You MUST call a tool for EVERY question about data. NEVER answer data questions from memory or imagination — the data changes daily. If you answer without calling a tool, your answer WILL be wrong.
+- Use tools for real data. Never guess or fabricate numbers, names, statuses, or values.
 - BATCH: Call ALL needed tools in ONE response — never chain across turns.
 - After tool results arrive, answer immediately. Do NOT call more tools.
 - NEVER call the same model more than once per turn — pick the right fields the first time.
-- Totals/counts → odoo_read_group. Lists → odoo_search (limit 20).
+- Totals/counts → odoo_read_group. Lists → odoo_search (limit 50, increase to 200 for "all records").
 - Format numbers with commas. Currency = EGP. Use markdown tables.
 - On field error → odoo_get_fields once, then retry. Multi-company context is automatic.
+- If a tool returns an error, report the error — do NOT invent data to compensate.
 
 CHARTS: CHART_BAR:{{"title":"T","labels":["A","B"],"data":[10,20]}}  CHART_PIE:{{"title":"T","labels":["A"],"data":[1]}}
 
