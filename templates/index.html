@@ -1366,8 +1366,7 @@ function buildReportModule(rawTableHtml, headers, bodyRows) {
   const countLabel  = isArabic ? 'إجمالي السجلات' : 'Total Records';
   const financeRe   = /price|cost|total|amount|value|balance|due|مبلغ|قيمة|سعر|إجمالي|رصيد/i;
 
-  let kpiHtml = `<div class="rm-kpi-row">
-    <div class="rm-kpi rm-kpi-count"><div class="rm-kpi-val">${bodyRows.length}</div><div class="rm-kpi-lbl">${countLabel}</div></div>`;
+  let kpiHtml = `<div class="rm-kpi-row"><div class="rm-kpi rm-kpi-count"><div class="rm-kpi-val">${bodyRows.length}</div><div class="rm-kpi-lbl">${countLabel}</div></div>`;
   Object.entries(numCols).slice(0, 4).forEach(([col, sum]) => {
     const isFin    = financeRe.test(col);
     const lbl      = col.length > 22 ? col.slice(0, 22) + '…' : col;
@@ -1409,20 +1408,7 @@ function buildReportModule(rawTableHtml, headers, bodyRows) {
   // Register chart data for lazy init
   _rmChartPending[moduleId] = { headers, rows: bodyRows };
 
-  return `<div class="report-module" id="${moduleId}">
-    <div class="rm-header">
-      <button class="rm-tab active" onclick="rmSwitch(this,'${moduleId}','kpi')">📊 Summary</button>
-      <button class="rm-tab" onclick="rmSwitch(this,'${moduleId}','table')">📋 Table</button>
-      <button class="rm-tab" onclick="rmSwitch(this,'${moduleId}','chart')">📈 Chart</button>
-      <button class="rm-tab" onclick="rmSwitch(this,'${moduleId}','export')">⬇ Export</button>
-    </div>
-    <div class="rm-pane active" data-pane="kpi">${kpiHtml}</div>
-    <div class="rm-pane" data-pane="table">${tblHtml}</div>
-    <div class="rm-pane" data-pane="chart">
-      <div class="rm-chart-wrap"><canvas id="chart-canvas-${moduleId}"></canvas></div>
-    </div>
-    <div class="rm-pane" data-pane="export">${exportHtml}</div>
-  </div>`;
+  return `<div class="report-module" id="${moduleId}"><div class="rm-header"><button class="rm-tab active" onclick="rmSwitch(this,'${moduleId}','kpi')">📊 Summary</button><button class="rm-tab" onclick="rmSwitch(this,'${moduleId}','table')">📋 Table</button><button class="rm-tab" onclick="rmSwitch(this,'${moduleId}','chart')">📈 Chart</button><button class="rm-tab" onclick="rmSwitch(this,'${moduleId}','export')">⬇ Export</button></div><div class="rm-pane active" data-pane="kpi">${kpiHtml}</div><div class="rm-pane" data-pane="table">${tblHtml}</div><div class="rm-pane" data-pane="chart"><div class="rm-chart-wrap"><canvas id="chart-canvas-${moduleId}"></canvas></div></div><div class="rm-pane" data-pane="export">${exportHtml}</div></div>`;
 }
 
 /* ── Export helpers ──────────────────────────────────────────────── */
@@ -1511,18 +1497,22 @@ function renderMD(raw, bubble) {
   t = t.replace(/^#{1,3} (.+)$/gm, '<h3>$1</h3>');
   t = t.replace(/^---$/gm, '<hr>');
 
-  // Tables → Report Modules  ((?:\n|$) catches last line without trailing newline)
+  // Tables → Report Modules
+  // Use a placeholder buffer so the \n→<br> step below never touches module HTML
+  const moduleBuffer = [];
   t = t.replace(/((?:^\|.+(?:\n|$))+)/gm, block => {
     const lines = block.trim().split('\n');
     let headers = [], bodyRows = [];
-    lines.forEach((row, i) => {
-      if (/^\|[\s\-:|]+\|$/.test(row)) return;
+    lines.forEach(row => {
+      if (/^\|[\s\-:|]+\|$/.test(row)) return;          // separator row — skip
       const cells = row.split('|').slice(1,-1).map(c => c.trim());
-      if (i === 0) headers = cells;
+      if (!headers.length) headers = cells;              // first non-separator = headers
       else bodyRows.push(cells);
     });
     if (!headers.length || !bodyRows.length) return block;
-    return buildReportModule(block, headers, bodyRows);
+    const ph = `\x00RM${moduleBuffer.length}\x00`;
+    moduleBuffer.push(buildReportModule(block, headers, bodyRows));
+    return ph;
   });
 
   // Strip any remaining orphaned pipe rows the AI may have appended
@@ -1533,7 +1523,11 @@ function renderMD(raw, bubble) {
   t = t.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
   t = t.replace(/(<li>.*?<\/li>(\n|$))+/gs, m => '<ul>' + m + '</ul>');
 
+  // \n→<br> runs HERE — after module placeholders extracted, safe from corruption
   t = t.replace(/\n\n/g,'<br><br>').replace(/\n/g,'<br>');
+
+  // Restore full module HTML (with their internal newlines intact)
+  moduleBuffer.forEach((html, idx) => { t = t.replace(`\x00RM${idx}\x00`, html); });
 
   // Chart placeholders
   chartBlocks.forEach(({id, type}) => {
