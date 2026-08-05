@@ -336,20 +336,27 @@ sub.project.plan.operation  →  sub-operations under a milestone — ONLY model
 project.detailed.item.line  →  client BOQ line items
   Fields: name, project_id, quantity, unit_cost, total_cost (=Total Price), main_item_line_id, boq_item_id
 
-project.subcontracting.boq.line  →  subcontractor BOQ items
-  Fields: name, project_id, quantity, unit_cost, billed_qty, remain_qty, boq_cost
-  WARNING: boq_cost = "BOQ Unit Price" — always 0, do NOT use for financial totals
+project.subcontracting.boq.line  →  raw subcontractor BOQ items (scope definition only)
+  Fields: name, project_id, quantity, unit_cost, billed_qty, remain_qty
+  WARNING: boq_cost = always 0, do NOT use for financial totals
+  ⚠ This model has NO direct link to the subcontractor (partner) name
+  → To show subcontractor name alongside BOQ items, use subcontractor.contract.line instead (see below)
 
 project.main.item.line  →  BOQ section/category headers
   Fields: name, project_id
 
 subcontractor.contract  →  subcontractor contracts — PRIMARY financial model
-  Fields: name, project_id, partner_id, contract_value (=THE contract total),
+  Fields: name, project_id, partner_id (= subcontractor company name), contract_value (=THE contract total),
           bills_amount_total, bills_amount_due, total_adv_amount
   status field values: draft | running | closed   (field name is "status" NOT "state")
 
-subcontractor.contract.line  →  individual contract line items
-  Fields: name, contract_id, project_id, unit_price, total_price, billed_qty, remain_qty
+subcontractor.contract.line  →  assigned BOQ line items inside a contract — USE THIS for subcontractor BOQ with partner name
+  Fields: name, contract_id, project_id, product_id (= item description), unit_price, total_price, billed_qty, remain_qty, boq_id
+  RELATIONSHIP: contract_id → subcontractor.contract.partner_id = subcontractor name
+  ▶ For "subcontractor BOQ items + who is the subcontractor": call BOTH in one turn:
+    1) odoo_search subcontractor.contract.line  fields=[name,project_id,product_id,quantity,unit_price,total_price,contract_id,billed_qty,remain_qty]
+    2) odoo_search subcontractor.contract       fields=[name,project_id,partner_id,contract_value,status]
+    Then join on contract_id = contract.name to show the subcontractor (partner_id) for each line
 
 boq.contract  →  BOQ scope config record — EMPTY in database (0 records), NO financial data
   Fields: name, project_id, partner_id
@@ -394,7 +401,8 @@ res.partner         → partners/vendors/clients (name,phone,email,is_company)
 • behind schedule / overdue / متأخر / delay / تأخير          → sub.project.plan.operation domain [{{"date_to","<","{today_date}"}},{{"date_to","!=",False}}]
                                                                then identify parent milestone via main_plan_id field
 • client BOQ / مقايسة العميل                                 → project.detailed.item.line (total_cost for amounts)
-• subcontractor BOQ items / بنود الباطن                      → project.subcontracting.boq.line
+• subcontractor BOQ items / بنود الباطن (scope only, no partner)  → project.subcontracting.boq.line
+• subcontractor BOQ items WITH subcontractor name / مع المقاول → subcontractor.contract.line + subcontractor.contract (join on contract_id)
 • BOQ contracts / subcontractor contracts / عقود المقاولين   → subcontractor.contract (use contract_value)
 • contract value / contract total / قيمة العقد               → subcontractor.contract (use contract_value)
 • advance payments / مدفوعات مقدمة                          → construction.advance.payment
