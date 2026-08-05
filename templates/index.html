@@ -1498,8 +1498,10 @@ function renderMD(raw, bubble) {
   t = t.replace(/^---$/gm, '<hr>');
 
   // Tables → Report Modules
-  // Use a placeholder buffer so the \n→<br> step below never touches module HTML
-  const moduleBuffer = [];
+  // Build module HTML separately; insert a lightweight placeholder in t so \n→<br> never
+  // touches module HTML. Modules are injected via DOM API (outerHTML) after innerHTML is set,
+  // completely bypassing any string-replacement $ interpretation issues.
+  const pendingModules = [];
   t = t.replace(/((?:^\|.+(?:\n|$))+)/gm, block => {
     const lines = block.trim().split('\n');
     let headers = [], bodyRows = [];
@@ -1510,9 +1512,9 @@ function renderMD(raw, bubble) {
       else bodyRows.push(cells);
     });
     if (!headers.length || !bodyRows.length) return block;
-    const ph = `\x00RM${moduleBuffer.length}\x00`;
-    moduleBuffer.push(buildReportModule(block, headers, bodyRows));
-    return ph;
+    const idx = pendingModules.length;
+    pendingModules.push(buildReportModule(block, headers, bodyRows));
+    return `<div data-rm-pending="${idx}"></div>`;
   });
 
   // Strip any remaining orphaned pipe rows the AI may have appended
@@ -1523,11 +1525,8 @@ function renderMD(raw, bubble) {
   t = t.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
   t = t.replace(/(<li>.*?<\/li>(\n|$))+/gs, m => '<ul>' + m + '</ul>');
 
-  // \n→<br> runs HERE — after module placeholders extracted, safe from corruption
+  // \n→<br> — safe: placeholder divs contain no \n
   t = t.replace(/\n\n/g,'<br><br>').replace(/\n/g,'<br>');
-
-  // Restore full module HTML (with their internal newlines intact)
-  moduleBuffer.forEach((html, idx) => { t = t.replace(`\x00RM${idx}\x00`, html); });
 
   // Chart placeholders
   chartBlocks.forEach(({id, type}) => {
@@ -1538,7 +1537,7 @@ function renderMD(raw, bubble) {
       </div>`);
   });
 
-  return { html: t, charts: chartBlocks };
+  return { html: t, charts: chartBlocks, pendingModules };
 }
 
 function applyCharts(bubble, charts) {
@@ -1669,15 +1668,18 @@ async function sendMessage() {
           fullText += ev.text;
           const d = isArabic(fullText) ? 'rtl' : null;
           if (d) aiBub.setAttribute('dir', d);
-          const { html } = renderMD(fullText);
-          aiBub.innerHTML = html; aiBub.appendChild(cur); scrollBottom();
+          const { html, pendingModules: pMods } = renderMD(fullText);
+          aiBub.innerHTML = html;
+          pMods.forEach((mHtml, i) => { const ph = aiBub.querySelector(`[data-rm-pending="${i}"]`); if (ph) ph.outerHTML = mHtml; });
+          aiBub.appendChild(cur); scrollBottom();
         } else if (ev.type === 'tool') {
           toolRows.push(appendTool(ev.name, ev.input||{}));
         } else if (ev.type === 'done') {
           toolRows.forEach(r=>r.remove()); cur.remove(); clearTimeout(timeout);
           if (fullText) {
-            const { html, charts } = renderMD(fullText);
+            const { html, charts, pendingModules: pMods } = renderMD(fullText);
             aiBub.innerHTML = html;
+            pMods.forEach((mHtml, i) => { const ph = aiBub.querySelector(`[data-rm-pending="${i}"]`); if (ph) ph.outerHTML = mHtml; });
             applyCharts(aiBub, charts);
             scrollBottom();
             _speakText(fullText);
