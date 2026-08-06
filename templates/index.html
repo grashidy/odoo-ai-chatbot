@@ -799,20 +799,25 @@ header::after {
     <a href="/upload-boq" class="hbtn" style="text-decoration:none">📥 Import BOQ</a>
     <button class="tts-btn" id="tts-toggle-btn" onclick="toggleTTS()" title="Voice on/off">🔇</button>
     <button class="hbtn new" onclick="newChat()">✚ New</button>
-    <button class="hbtn" id="visitors-btn" onclick="toggleVisitors()">👁 Visitors</button>
     <button class="hbtn" onclick="toggleSettings()">⚙ Settings</button>
   </div>
 </header>
 
 <!-- ── Settings ──────────────────────────────────────────────────── -->
-<div id="settings-panel">
+<div id="settings-panel" style="flex-wrap:wrap;row-gap:10px">
+  <!-- API Key row -->
   <label>API Key <span style="color:var(--text3)">(optional — server key active)</span>:</label>
   <input type="password" id="api-key-input" placeholder="Leave empty — server Gemini key is configured"/>
   <button class="btn-save" onclick="saveKey()">Save</button>
   <button class="btn-save" style="background:var(--border2);color:var(--text2)" onclick="clearKey()">Clear</button>
+  <!-- Divider -->
+  <div style="width:100%;height:1px;background:var(--border);margin:2px 0"></div>
+  <!-- Analytics access row -->
+  <label style="color:var(--text2)">Analytics:</label>
+  <button class="btn-save" style="background:var(--card2);color:var(--text2);border:1px solid var(--border2)" onclick="toggleAnalytics()">📊 Open Analytics</button>
 </div>
 
-<!-- ── Visitors panel ───────────────────────────────────────────── -->
+<!-- ── Analytics panel ──────────────────────────────────────────── -->
 <div id="visitors-panel">
 
   <!-- Lock screen (shown when not authenticated) -->
@@ -828,7 +833,7 @@ header::after {
   <!-- Content (shown after authentication) -->
   <div id="vp-content" style="display:none;flex-direction:column;gap:12px">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-      <div style="font-size:13px;font-weight:700;color:var(--text)">👁 Live Visitor Tracking</div>
+      <div style="font-size:13px;font-weight:700;color:var(--text)">📊 Analytics — Access Log</div>
       <div style="display:flex;gap:6px">
         <button class="vp-refresh" onclick="loadVisitors()">↺ Refresh</button>
         <button class="vp-refresh" onclick="vpLogout()" style="color:var(--red);border-color:rgba(220,53,69,0.4)">🔒 Lock</button>
@@ -1257,17 +1262,19 @@ function initWelcomeTabs() {
   if (btns.length > 0) btns[0].click();
 }
 
-/* ── Visitors panel ──────────────────────────────────────────────── */
-function toggleVisitors() {
+/* ── Analytics panel ─────────────────────────────────────────────── */
+function toggleAnalytics() {
+  // Close settings first, then open analytics
+  document.getElementById('settings-panel').style.display = 'none';
   const p = document.getElementById('visitors-panel');
-  const btn = document.getElementById('visitors-btn');
   if (p.style.display === 'flex') {
-    p.style.display = 'none'; btn.classList.remove('active');
+    p.style.display = 'none';
   } else {
-    p.style.display = 'flex'; btn.classList.add('active');
+    p.style.display = 'flex';
     _vpCheckAuth();
   }
 }
+function toggleVisitors() { toggleAnalytics(); }
 function _vpCheckAuth() {
   const stored = localStorage.getItem('vp_secret') || '';
   if (!stored) { _vpShowLock(); return; }
