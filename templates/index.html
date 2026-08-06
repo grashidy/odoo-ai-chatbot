@@ -814,30 +814,48 @@ header::after {
 
 <!-- ── Visitors panel ───────────────────────────────────────────── -->
 <div id="visitors-panel">
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-    <div style="font-size:13px;font-weight:700;color:var(--text)">👁 Live Visitor Tracking <span style="font-size:10px;color:var(--text3);font-weight:400">(resets on server restart)</span></div>
-    <button class="vp-refresh" onclick="loadVisitors()">↺ Refresh</button>
+
+  <!-- Lock screen (shown when not authenticated) -->
+  <div id="vp-lock" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span style="font-size:13px;color:var(--text2)">🔒 Enter admin password to view visitors:</span>
+    <input id="vp-secret-input" type="password" placeholder="Admin password…"
+      style="background:var(--bg);border:1px solid var(--border2);border-radius:6px;padding:5px 12px;color:var(--text);font-size:12px;font-family:monospace;width:200px"
+      onkeydown="if(event.key==='Enter')vpUnlock()"/>
+    <button class="vp-refresh" onclick="vpUnlock()" style="background:var(--gold-dim2);border-color:var(--gold);color:var(--gold2)">Unlock</button>
+    <span id="vp-secret-err" style="display:none;color:var(--red);font-size:11px">❌ Wrong password</span>
   </div>
-  <div class="vp-kpi-row" id="vp-kpis">
-    <div class="vp-kpi"><div class="vp-kpi-val" id="vp-unique">—</div><div class="vp-kpi-lbl">Unique IPs</div></div>
-    <div class="vp-kpi"><div class="vp-kpi-val" id="vp-total">—</div><div class="vp-kpi-lbl">Total Requests</div></div>
-    <div class="vp-kpi" id="vp-mobile-kpi"><div class="vp-kpi-val" id="vp-mobile">—</div><div class="vp-kpi-lbl">📱 Mobile</div></div>
-    <div class="vp-kpi" id="vp-desktop-kpi"><div class="vp-kpi-val" id="vp-desktop">—</div><div class="vp-kpi-lbl">🖥 Desktop</div></div>
-    <div class="vp-kpi" id="vp-tablet-kpi"><div class="vp-kpi-val" id="vp-tablet">—</div><div class="vp-kpi-lbl">📟 Tablet</div></div>
-  </div>
-  <div>
-    <div class="vp-section-title">Browsers</div>
-    <div class="vp-chips" id="vp-browsers"></div>
-  </div>
-  <div>
-    <div class="vp-section-title">All Visitors</div>
-    <div id="vp-table-wrap">
-      <table class="vp-table">
-        <thead><tr><th>#</th><th>IP Address</th><th>Device</th><th>OS</th><th>Browser</th><th>Requests</th><th>First Seen</th><th>Last Seen</th></tr></thead>
-        <tbody id="vp-tbody"><tr><td colspan="8" style="padding:16px;color:var(--text3);text-align:center">Loading…</td></tr></tbody>
-      </table>
+
+  <!-- Content (shown after authentication) -->
+  <div id="vp-content" style="display:none;flex-direction:column;gap:12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div style="font-size:13px;font-weight:700;color:var(--text)">👁 Live Visitor Tracking</div>
+      <div style="display:flex;gap:6px">
+        <button class="vp-refresh" onclick="loadVisitors()">↺ Refresh</button>
+        <button class="vp-refresh" onclick="vpLogout()" style="color:var(--red);border-color:rgba(220,53,69,0.4)">🔒 Lock</button>
+      </div>
+    </div>
+    <div class="vp-kpi-row">
+      <div class="vp-kpi"><div class="vp-kpi-val" id="vp-unique">—</div><div class="vp-kpi-lbl">Unique IPs</div></div>
+      <div class="vp-kpi"><div class="vp-kpi-val" id="vp-total">—</div><div class="vp-kpi-lbl">Total Requests</div></div>
+      <div class="vp-kpi"><div class="vp-kpi-val" id="vp-mobile">—</div><div class="vp-kpi-lbl">📱 Mobile</div></div>
+      <div class="vp-kpi"><div class="vp-kpi-val" id="vp-desktop">—</div><div class="vp-kpi-lbl">🖥 Desktop</div></div>
+      <div class="vp-kpi"><div class="vp-kpi-val" id="vp-tablet">—</div><div class="vp-kpi-lbl">📟 Tablet</div></div>
+    </div>
+    <div>
+      <div class="vp-section-title">Browsers</div>
+      <div class="vp-chips" id="vp-browsers"></div>
+    </div>
+    <div>
+      <div class="vp-section-title">All Visitors</div>
+      <div id="vp-table-wrap">
+        <table class="vp-table">
+          <thead><tr><th>#</th><th>IP Address</th><th>Device</th><th>OS</th><th>Browser</th><th>Requests</th><th>First Seen</th><th>Last Seen</th></tr></thead>
+          <tbody id="vp-tbody"><tr><td colspan="8" style="padding:16px;color:var(--text3);text-align:center">Loading…</td></tr></tbody>
+        </table>
+      </div>
     </div>
   </div>
+
 </div>
 
 <!-- ── Welcome template ──────────────────────────────────────────── -->
@@ -1247,23 +1265,50 @@ function toggleVisitors() {
     p.style.display = 'none'; btn.classList.remove('active');
   } else {
     p.style.display = 'flex'; btn.classList.add('active');
-    loadVisitors();
+    _vpCheckAuth();
   }
 }
-async function loadVisitors() {
+function _vpCheckAuth() {
+  const stored = localStorage.getItem('vp_secret') || '';
+  if (!stored) { _vpShowLock(); return; }
+  loadVisitors(stored);
+}
+function _vpShowLock() {
+  document.getElementById('vp-lock').style.display = 'flex';
+  document.getElementById('vp-content').style.display = 'none';
+  setTimeout(() => document.getElementById('vp-secret-input').focus(), 50);
+}
+function _vpShowContent() {
+  document.getElementById('vp-lock').style.display = 'none';
+  document.getElementById('vp-content').style.display = 'flex';
+}
+function vpUnlock() {
+  const val = document.getElementById('vp-secret-input').value.trim();
+  if (!val) return;
+  loadVisitors(val);
+}
+async function loadVisitors(secret) {
+  secret = secret || localStorage.getItem('vp_secret') || '';
+  const url = '/admin/visitors' + (secret ? `?secret=${encodeURIComponent(secret)}` : '');
   try {
-    const r = await fetch('/admin/visitors');
+    const r = await fetch(url);
+    if (r.status === 403) {
+      localStorage.removeItem('vp_secret');
+      document.getElementById('vp-secret-err').style.display = 'block';
+      _vpShowLock(); return;
+    }
+    localStorage.setItem('vp_secret', secret);
+    document.getElementById('vp-secret-err').style.display = 'none';
+    _vpShowContent();
     const d = await r.json();
     document.getElementById('vp-unique').textContent  = d.unique_ips.toLocaleString();
     document.getElementById('vp-total').textContent   = d.total_requests.toLocaleString();
     document.getElementById('vp-mobile').textContent  = (d.devices['📱 Mobile']  || 0).toLocaleString();
     document.getElementById('vp-desktop').textContent = (d.devices['🖥 Desktop'] || 0).toLocaleString();
     document.getElementById('vp-tablet').textContent  = (d.devices['📟 Tablet']  || 0).toLocaleString();
-    // Browsers chips
     const bc = document.getElementById('vp-browsers');
     bc.innerHTML = Object.entries(d.browsers).sort((a,b)=>b[1]-a[1])
       .map(([b,c]) => `<div class="vp-chip">${b} <span>${c}</span></div>`).join('');
-    // Table
     const tb = document.getElementById('vp-tbody');
     if (!d.visitors.length) { tb.innerHTML = '<tr><td colspan="8" style="padding:16px;color:var(--text3);text-align:center">No visitors yet</td></tr>'; return; }
     tb.innerHTML = d.visitors.map((v, i) => `<tr>
@@ -1277,6 +1322,11 @@ async function loadVisitors() {
       <td style="color:var(--text2);font-size:11px">${v.last_seen}</td>
     </tr>`).join('');
   } catch(e) { console.error('Visitors load error', e); }
+}
+function vpLogout() {
+  localStorage.removeItem('vp_secret');
+  _vpShowLock();
+  document.getElementById('vp-secret-input').value = '';
 }
 
 /* ── Settings / Key ──────────────────────────────────────────────── */

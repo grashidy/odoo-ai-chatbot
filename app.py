@@ -432,10 +432,62 @@ app = Flask(__name__)
 app.config["APPLICATION_ROOT"] = "/"
 
 # ── Visitor tracking ───────────────────────────────────────────────────────────
-_visitors    = {}          # ip → visit record
-_visit_lock  = threading.Lock()
-_STATIC_EXTS = {".js", ".css", ".png", ".ico", ".svg", ".woff", ".woff2", ".ttf", ".map"}
+# Set ADMIN_SECRET in Railway Variables to protect the /admin/visitors endpoint.
+ADMIN_SECRET  = os.environ.get("ADMIN_SECRET", "").strip()
+_VISITORS_DB  = os.environ.get("VISITORS_DB", "./visitors.db")   # set to /data/visitors.db with Railway Volume for full persistence
+_visitors     = {}
+_visit_lock   = threading.Lock()
+_STATIC_EXTS  = {".js", ".css", ".png", ".ico", ".svg", ".woff", ".woff2", ".ttf", ".map"}
 
+# ── SQLite persistence helpers ─────────────────────────────────────────────────
+import sqlite3 as _sqlite3
+
+def _db_open():
+    try:
+        conn = _sqlite3.connect(_VISITORS_DB, check_same_thread=False, timeout=10)
+        conn.execute("""CREATE TABLE IF NOT EXISTS visitors (
+            ip TEXT PRIMARY KEY, device TEXT, browser TEXT, os TEXT, ua TEXT,
+            first_seen TEXT, last_seen TEXT, requests INTEGER DEFAULT 1
+        )""")
+        conn.commit()
+        return conn
+    except Exception as _e:
+        logging.warning("Visitors DB init failed (%s) — using in-memory only", _e)
+        return None
+
+_vdb      = _db_open()
+_vdb_lock = threading.Lock()
+
+def _db_upsert(ip, d):
+    if not _vdb:
+        return
+    with _vdb_lock:
+        try:
+            _vdb.execute("""INSERT INTO visitors(ip,device,browser,os,ua,first_seen,last_seen,requests)
+                            VALUES(?,?,?,?,?,?,?,?)
+                            ON CONFLICT(ip) DO UPDATE SET last_seen=excluded.last_seen, requests=excluded.requests""",
+                         (ip, d["device"], d["browser"], d["os"], d["ua"],
+                          d["first_seen"], d["last_seen"], d["requests"]))
+            _vdb.commit()
+        except Exception as _e:
+            logging.warning("Visitors DB write error: %s", _e)
+
+def _db_load():
+    if not _vdb:
+        return {}
+    try:
+        rows = _vdb.execute("SELECT ip,device,browser,os,ua,first_seen,last_seen,requests FROM visitors").fetchall()
+        return {r[0]: {"device":r[1],"browser":r[2],"os":r[3],"ua":r[4],
+                       "first_seen":r[5],"last_seen":r[6],"requests":r[7]} for r in rows}
+    except Exception as _e:
+        logging.warning("Visitors DB load error: %s", _e)
+        return {}
+
+# Load persisted data into memory at startup
+_visitors.update(_db_load())
+logging.info("Visitors loaded from DB: %d records", len(_visitors))
+
+# ── Parser helpers ─────────────────────────────────────────────────────────────
 def _parse_device(ua):
     u = ua or ""
     if any(k in u for k in ("iPhone","Android","Mobile","BlackBerry","Windows Phone","webOS")):
@@ -446,8 +498,8 @@ def _parse_device(ua):
 
 def _parse_browser(ua):
     u = ua or ""
-    if "Edg/"  in u: return "Edge"
-    if "OPR/"  in u or "Opera" in u: return "Opera"
+    if "Edg/"    in u: return "Edge"
+    if "OPR/"    in u or "Opera" in u: return "Opera"
     if "Chrome/" in u: return "Chrome"
     if "Firefox/" in u: return "Firefox"
     if "Safari/" in u: return "Safari"
@@ -458,13 +510,12 @@ def _parse_os(ua):
     if "Windows" in u: return "Windows"
     if "Mac OS"  in u: return "macOS"
     if "Android" in u: return "Android"
-    if "iPhone" in u or "iPad" in u: return "iOS"
+    if "iPhone"  in u or "iPad" in u: return "iOS"
     if "Linux"   in u: return "Linux"
     return "Other"
 
 @app.before_request
 def _track_visitor():
-    # Skip static asset requests — only track page/API hits
     path = request.path
     if any(path.endswith(ext) for ext in _STATIC_EXTS):
         return
@@ -484,27 +535,32 @@ def _track_visitor():
                 "ua": ua, "device": _parse_device(ua),
                 "browser": _parse_browser(ua), "os": _parse_os(ua),
             }
+        _db_upsert(ip, _visitors[ip])
     logging.info("VISIT ip=%s device=%s path=%s", ip, _parse_device(ua), path)
 
 @app.route("/admin/visitors")
 @app.route("/ai/admin/visitors")
 def admin_visitors():
+    # ── Secret check — only owner can see this ──────────────────────
+    if ADMIN_SECRET:
+        provided = (request.args.get("secret") or "").strip()
+        if provided != ADMIN_SECRET:
+            return jsonify({"error": "Unauthorized — wrong secret"}), 403
     with _visit_lock:
         snap = dict(_visitors)
     rows = sorted(snap.items(), key=lambda x: x[1]["last_seen"], reverse=True)
     visitors_out = [{"ip": ip, **v} for ip, v in rows]
-    devices = {}
-    for v in snap.values():
-        devices[v["device"]] = devices.get(v["device"], 0) + 1
+    devices  = {}
     browsers = {}
     for v in snap.values():
+        devices[v["device"]]   = devices.get(v["device"],   0) + 1
         browsers[v["browser"]] = browsers.get(v["browser"], 0) + 1
     return jsonify({
         "unique_ips":     len(snap),
         "total_requests": sum(v["requests"] for v in snap.values()),
-        "devices":        devices,
-        "browsers":       browsers,
-        "visitors":       visitors_out,
+        "devices":  devices,
+        "browsers": browsers,
+        "visitors": visitors_out,
     })
 
 @app.route("/")
