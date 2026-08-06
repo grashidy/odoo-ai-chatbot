@@ -1,4 +1,4 @@
-import xmlrpc.client, json, os, time, re, logging, threading, io, base64, socket
+import xmlrpc.client, json, os, time, re, logging, threading, io, base64, socket, datetime
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from openai import OpenAI
@@ -430,6 +430,82 @@ app = Flask(__name__)
 
 # Support running under /ai path on the server
 app.config["APPLICATION_ROOT"] = "/"
+
+# ── Visitor tracking ───────────────────────────────────────────────────────────
+_visitors    = {}          # ip → visit record
+_visit_lock  = threading.Lock()
+_STATIC_EXTS = {".js", ".css", ".png", ".ico", ".svg", ".woff", ".woff2", ".ttf", ".map"}
+
+def _parse_device(ua):
+    u = ua or ""
+    if any(k in u for k in ("iPhone","Android","Mobile","BlackBerry","Windows Phone","webOS")):
+        return "📱 Mobile"
+    if any(k in u for k in ("iPad","Tablet")):
+        return "📟 Tablet"
+    return "🖥 Desktop"
+
+def _parse_browser(ua):
+    u = ua or ""
+    if "Edg/"  in u: return "Edge"
+    if "OPR/"  in u or "Opera" in u: return "Opera"
+    if "Chrome/" in u: return "Chrome"
+    if "Firefox/" in u: return "Firefox"
+    if "Safari/" in u: return "Safari"
+    return "Other"
+
+def _parse_os(ua):
+    u = ua or ""
+    if "Windows" in u: return "Windows"
+    if "Mac OS"  in u: return "macOS"
+    if "Android" in u: return "Android"
+    if "iPhone" in u or "iPad" in u: return "iOS"
+    if "Linux"   in u: return "Linux"
+    return "Other"
+
+@app.before_request
+def _track_visitor():
+    # Skip static asset requests — only track page/API hits
+    path = request.path
+    if any(path.endswith(ext) for ext in _STATIC_EXTS):
+        return
+    ip  = (request.headers.get("X-Forwarded-For") or request.remote_addr or "unknown").split(",")[0].strip()
+    ua  = request.headers.get("User-Agent", "")[:200]
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M") + " UTC"
+    with _visit_lock:
+        if ip in _visitors:
+            _visitors[ip]["last_seen"] = now
+            _visitors[ip]["requests"] += 1
+        else:
+            if len(_visitors) >= 2000:
+                oldest = min(_visitors, key=lambda k: _visitors[k]["first_seen"])
+                del _visitors[oldest]
+            _visitors[ip] = {
+                "first_seen": now, "last_seen": now, "requests": 1,
+                "ua": ua, "device": _parse_device(ua),
+                "browser": _parse_browser(ua), "os": _parse_os(ua),
+            }
+    logging.info("VISIT ip=%s device=%s path=%s", ip, _parse_device(ua), path)
+
+@app.route("/admin/visitors")
+@app.route("/ai/admin/visitors")
+def admin_visitors():
+    with _visit_lock:
+        snap = dict(_visitors)
+    rows = sorted(snap.items(), key=lambda x: x[1]["last_seen"], reverse=True)
+    visitors_out = [{"ip": ip, **v} for ip, v in rows]
+    devices = {}
+    for v in snap.values():
+        devices[v["device"]] = devices.get(v["device"], 0) + 1
+    browsers = {}
+    for v in snap.values():
+        browsers[v["browser"]] = browsers.get(v["browser"], 0) + 1
+    return jsonify({
+        "unique_ips":     len(snap),
+        "total_requests": sum(v["requests"] for v in snap.values()),
+        "devices":        devices,
+        "browsers":       browsers,
+        "visitors":       visitors_out,
+    })
 
 @app.route("/")
 @app.route("/ai")

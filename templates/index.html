@@ -148,6 +148,43 @@ header::after {
   background: var(--surface); border-bottom: 1px solid var(--border);
   padding: 8px 20px; display: none; align-items: center; gap: 8px; flex-shrink: 0;
 }
+
+/* ── Visitors panel ─────────────────────────────────────────────── */
+#visitors-panel {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 14px 20px; display: none; flex-shrink: 0; flex-direction: column; gap: 12px;
+}
+.vp-kpi-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.vp-kpi {
+  background: var(--card); border: 1px solid var(--border2); border-radius: 8px;
+  padding: 10px 18px; min-width: 110px;
+}
+.vp-kpi-val { font-size: 22px; font-weight: 700; color: var(--gold2); font-variant-numeric: tabular-nums; }
+.vp-kpi-lbl { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+.vp-section-title { font-size: 11px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
+.vp-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.vp-chip {
+  background: var(--card2); border: 1px solid var(--border); border-radius: 20px;
+  padding: 3px 10px; font-size: 11.5px; color: var(--text); display: flex; align-items: center; gap: 5px;
+}
+.vp-chip span { color: var(--gold2); font-weight: 700; }
+#vp-table-wrap { overflow-x: auto; max-height: 260px; overflow-y: auto; }
+.vp-table {
+  width: 100%; border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums;
+}
+.vp-table thead tr { background: var(--card2); position: sticky; top: 0; z-index: 1; }
+.vp-table thead th {
+  padding: 7px 12px; text-align: left; color: var(--gold2); font-size: 10px;
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap;
+  border-bottom: 1px solid var(--border2);
+}
+.vp-table tbody tr { border-bottom: 1px solid rgba(16,48,78,0.5); transition: background .1s; }
+.vp-table tbody tr:hover { background: rgba(184,130,10,0.06); }
+.vp-table tbody td { padding: 6px 12px; color: var(--text); white-space: nowrap; }
+.vp-table tbody td.ip { font-family: monospace; color: var(--blue2); font-size: 12px; }
+.vp-refresh { background: var(--card); border: 1px solid var(--border2); border-radius: 6px;
+  padding: 4px 10px; font-size: 11px; color: var(--text2); cursor: pointer; font-family: inherit; }
+.vp-refresh:hover { border-color: var(--gold); color: var(--gold2); }
 #settings-panel label { font-size: 12px; color: var(--text2); white-space: nowrap; }
 #api-key-input {
   flex: 1; background: var(--bg); border: 1px solid var(--border2);
@@ -762,6 +799,7 @@ header::after {
     <a href="/upload-boq" class="hbtn" style="text-decoration:none">📥 Import BOQ</a>
     <button class="tts-btn" id="tts-toggle-btn" onclick="toggleTTS()" title="Voice on/off">🔇</button>
     <button class="hbtn new" onclick="newChat()">✚ New</button>
+    <button class="hbtn" id="visitors-btn" onclick="toggleVisitors()">👁 Visitors</button>
     <button class="hbtn" onclick="toggleSettings()">⚙ Settings</button>
   </div>
 </header>
@@ -772,6 +810,34 @@ header::after {
   <input type="password" id="api-key-input" placeholder="Leave empty — server Gemini key is configured"/>
   <button class="btn-save" onclick="saveKey()">Save</button>
   <button class="btn-save" style="background:var(--border2);color:var(--text2)" onclick="clearKey()">Clear</button>
+</div>
+
+<!-- ── Visitors panel ───────────────────────────────────────────── -->
+<div id="visitors-panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <div style="font-size:13px;font-weight:700;color:var(--text)">👁 Live Visitor Tracking <span style="font-size:10px;color:var(--text3);font-weight:400">(resets on server restart)</span></div>
+    <button class="vp-refresh" onclick="loadVisitors()">↺ Refresh</button>
+  </div>
+  <div class="vp-kpi-row" id="vp-kpis">
+    <div class="vp-kpi"><div class="vp-kpi-val" id="vp-unique">—</div><div class="vp-kpi-lbl">Unique IPs</div></div>
+    <div class="vp-kpi"><div class="vp-kpi-val" id="vp-total">—</div><div class="vp-kpi-lbl">Total Requests</div></div>
+    <div class="vp-kpi" id="vp-mobile-kpi"><div class="vp-kpi-val" id="vp-mobile">—</div><div class="vp-kpi-lbl">📱 Mobile</div></div>
+    <div class="vp-kpi" id="vp-desktop-kpi"><div class="vp-kpi-val" id="vp-desktop">—</div><div class="vp-kpi-lbl">🖥 Desktop</div></div>
+    <div class="vp-kpi" id="vp-tablet-kpi"><div class="vp-kpi-val" id="vp-tablet">—</div><div class="vp-kpi-lbl">📟 Tablet</div></div>
+  </div>
+  <div>
+    <div class="vp-section-title">Browsers</div>
+    <div class="vp-chips" id="vp-browsers"></div>
+  </div>
+  <div>
+    <div class="vp-section-title">All Visitors</div>
+    <div id="vp-table-wrap">
+      <table class="vp-table">
+        <thead><tr><th>#</th><th>IP Address</th><th>Device</th><th>OS</th><th>Browser</th><th>Requests</th><th>First Seen</th><th>Last Seen</th></tr></thead>
+        <tbody id="vp-tbody"><tr><td colspan="8" style="padding:16px;color:var(--text3);text-align:center">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
 <!-- ── Welcome template ──────────────────────────────────────────── -->
@@ -1171,6 +1237,46 @@ function initWelcomeTabs() {
     });
   });
   if (btns.length > 0) btns[0].click();
+}
+
+/* ── Visitors panel ──────────────────────────────────────────────── */
+function toggleVisitors() {
+  const p = document.getElementById('visitors-panel');
+  const btn = document.getElementById('visitors-btn');
+  if (p.style.display === 'flex') {
+    p.style.display = 'none'; btn.classList.remove('active');
+  } else {
+    p.style.display = 'flex'; btn.classList.add('active');
+    loadVisitors();
+  }
+}
+async function loadVisitors() {
+  try {
+    const r = await fetch('/admin/visitors');
+    const d = await r.json();
+    document.getElementById('vp-unique').textContent  = d.unique_ips.toLocaleString();
+    document.getElementById('vp-total').textContent   = d.total_requests.toLocaleString();
+    document.getElementById('vp-mobile').textContent  = (d.devices['📱 Mobile']  || 0).toLocaleString();
+    document.getElementById('vp-desktop').textContent = (d.devices['🖥 Desktop'] || 0).toLocaleString();
+    document.getElementById('vp-tablet').textContent  = (d.devices['📟 Tablet']  || 0).toLocaleString();
+    // Browsers chips
+    const bc = document.getElementById('vp-browsers');
+    bc.innerHTML = Object.entries(d.browsers).sort((a,b)=>b[1]-a[1])
+      .map(([b,c]) => `<div class="vp-chip">${b} <span>${c}</span></div>`).join('');
+    // Table
+    const tb = document.getElementById('vp-tbody');
+    if (!d.visitors.length) { tb.innerHTML = '<tr><td colspan="8" style="padding:16px;color:var(--text3);text-align:center">No visitors yet</td></tr>'; return; }
+    tb.innerHTML = d.visitors.map((v, i) => `<tr>
+      <td style="color:var(--text3)">${i+1}</td>
+      <td class="ip">${v.ip}</td>
+      <td>${v.device}</td>
+      <td>${v.os}</td>
+      <td>${v.browser}</td>
+      <td style="color:var(--gold2);font-weight:600">${v.requests}</td>
+      <td style="color:var(--text3);font-size:11px">${v.first_seen}</td>
+      <td style="color:var(--text2);font-size:11px">${v.last_seen}</td>
+    </tr>`).join('');
+  } catch(e) { console.error('Visitors load error', e); }
 }
 
 /* ── Settings / Key ──────────────────────────────────────────────── */
