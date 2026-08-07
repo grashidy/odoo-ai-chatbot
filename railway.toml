@@ -1,0 +1,6 @@
+[build]
+builder = "DOCKERFILE"
+
+[deploy]
+startCommand = "gunicorn app:app -c gunicorn.conf.py"
+restartPolicyType = "ON_FAILURE"
