@@ -1263,6 +1263,7 @@ header::after {
       <button class="dash-tab" data-dtab="realestate">🏢 Real Estate</button>
       <button class="dash-tab" data-dtab="hr">👥 HR</button>
       <button class="dash-tab" data-dtab="procurement">🛒 Procurement</button>
+      <button class="dash-tab" data-dtab="inventory">📦 Inventory</button>
     </div>
 
     <!-- Construction pane -->
@@ -1285,6 +1286,12 @@ header::after {
     <!-- Procurement pane -->
     <div class="dash-pane" id="dtab-procurement">
       <div class="dash-section" id="ds-po"></div>
+    </div>
+
+    <!-- Inventory pane -->
+    <div class="dash-pane" id="dtab-inventory">
+      <div class="dash-section" id="ds-inv-stock"></div>
+      <div class="dash-section" id="ds-inv-transfers"></div>
     </div>
 
   </div>
@@ -2067,13 +2074,15 @@ async function loadReports() {
     const totalPO       = _safeArr(d.po_by_vendor).reduce((s,r) => s + (r.amount||0), 0);
     const totalContracts= _safeArr(d.boq_contracts_by_project).reduce((s,r) => s + (r.amount||0), 0);
     const totalBOQ      = _safeArr(d.boq_detail_by_project).reduce((s,r) => s + (r.amount||0), 0);
+    const totalStock    = _safeArr(d.inv_by_location).reduce((s,r) => s + (r.amount||0), 0);
     strip.innerHTML = `
       <div class="dash-kpi"><div class="dash-kpi-val">${fmtNum(totalContracts)}</div><div class="dash-kpi-lbl">Contract Value EGP</div></div>
       <div class="dash-kpi"><div class="dash-kpi-val">${fmtNum(totalBOQ)}</div><div class="dash-kpi-lbl">Client BOQ EGP</div></div>
       <div class="dash-kpi"><div class="dash-kpi-val">${fmtNum(totalAdv)}</div><div class="dash-kpi-lbl">Advance Payments EGP</div></div>
       <div class="dash-kpi blue"><div class="dash-kpi-val">${totalUnits.toLocaleString()}</div><div class="dash-kpi-lbl">RE Units</div></div>
       <div class="dash-kpi green"><div class="dash-kpi-val">${totalEmp.toLocaleString()}</div><div class="dash-kpi-lbl">Employees</div></div>
-      <div class="dash-kpi purple"><div class="dash-kpi-val">${fmtNum(totalPO)}</div><div class="dash-kpi-lbl">PO Value EGP</div></div>`;
+      <div class="dash-kpi purple"><div class="dash-kpi-val">${fmtNum(totalPO)}</div><div class="dash-kpi-lbl">PO Value EGP</div></div>
+      <div class="dash-kpi" style="--kpi-accent:#1a8c5b"><div class="dash-kpi-val">${Math.round(totalStock).toLocaleString()}</div><div class="dash-kpi-lbl">Stock Units on Hand</div></div>`;
 
     // ── Construction: Contracts section ──
     const ctrData = _safeArr(d.boq_contracts_by_project).filter(r => r.amount > 0);
@@ -2152,6 +2161,34 @@ async function loadReports() {
       ],
       [
         { id:'dc_po', title:'Top Vendors by PO Value', sub:'purchase.order (state: purchase / done)', type:'bar', data:poData, valKey:'amount', isAmount:true },
+      ]
+    );
+
+    // ── Inventory: Stock on Hand ──
+    const invLocData  = _safeArr(d.inv_by_location);
+    const totalStockLocs = invLocData.length;
+    _dashSection('ds-inv-stock', '📦', 'Stock on Hand', 'stock.quant (internal locations only)',
+      [
+        { val: Math.round(totalStock).toLocaleString(), lbl: 'Total Units on Hand' },
+        { val: totalStockLocs, lbl: 'Storage Locations', blue: true },
+      ],
+      [
+        { id:'dc_inv_loc', title:'Stock Quantity by Location', sub:'stock.quant · location_id.usage=internal', type:'bar', data:invLocData, valKey:'amount', isAmount:false },
+      ]
+    );
+
+    // ── Inventory: Transfers ──
+    const invStateData = _safeArr(d.inv_by_state);
+    const invTypeData  = _safeArr(d.inv_by_type);
+    const totalTransfers = invStateData.reduce((s,r) => s + r.count, 0);
+    _dashSection('ds-inv-transfers', '🚚', 'Stock Transfers', 'stock.picking',
+      [
+        { val: totalTransfers.toLocaleString(), lbl: 'Active Transfers' },
+        { val: invTypeData.length, lbl: 'Operation Types', blue: true },
+      ],
+      [
+        { id:'dc_inv_state', title:'Transfers by State',          sub:'stock.picking · state', type:'doughnut', data:invStateData, valKey:'count', isAmount:false },
+        { id:'dc_inv_type',  title:'Transfers by Operation Type', sub:'stock.picking · picking_type_id', type:'doughnut', data:invTypeData, valKey:'count', isAmount:false },
       ]
     );
 

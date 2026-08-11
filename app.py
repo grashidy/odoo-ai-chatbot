@@ -976,6 +976,19 @@ def reports_data():
     units_by_hp = safe("rs.dev.unit", "read_group",
         [[], ["historical_process"], ["historical_process"]], {"lazy": False})
 
+    # Inventory: stock on hand by location (internal locations only, qty > 0)
+    inv_by_location = safe("stock.quant", "read_group",
+        [[["location_id.usage","=","internal"],["quantity",">",0]],
+         ["location_id","quantity:sum"], ["location_id"]],
+        {"lazy": False, "limit": 10, "orderby": "quantity desc"})
+    # Inventory: active transfers by state (exclude cancelled/draft)
+    inv_by_state = safe("stock.picking", "read_group",
+        [[["state","not in",["cancel","draft"]]], ["state"], ["state"]], {"lazy": False})
+    # Inventory: transfers by operation type (receipts vs deliveries vs internal)
+    inv_by_type = safe("stock.picking", "read_group",
+        [[["state","not in",["cancel"]]], ["picking_type_id"], ["picking_type_id"]],
+        {"lazy": False})
+
     def extract(rows, label_field, count_field="__count", amount_field=None):
         if isinstance(rows, dict) and "error" in rows:
             return {"error": rows["error"]}
@@ -1004,6 +1017,9 @@ def reports_data():
         "units_by_state":           extract(units_by_hp,              "historical_process"),
         "units_by_type":            extract(units_by_type,            "usability_type"),
         "plan_by_state":            extract(plan_by_type,             "plan_type"),
+        "inv_by_location":          extract(inv_by_location,          "location_id",   amount_field="quantity"),
+        "inv_by_state":             extract(inv_by_state,             "state"),
+        "inv_by_type":              extract(inv_by_type,              "picking_type_id"),
     })
 
 # ── BOQ Import ─────────────────────────────────────────────────────────────────
