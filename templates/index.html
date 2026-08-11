@@ -293,6 +293,7 @@ header::after {
 .cat-card.c-ctr    { --cat-color: #9b5de5; }
 .cat-card.c-bld    { --cat-color: #3a7bd5; }
 .cat-card.c-sup    { --cat-color: #0b8a7c; }
+.cat-card.c-inv    { --cat-color: #1a8c5b; }
 
 /* ── Package/Module tabs (landing page) ─────────────────────── */
 .pkg-tab-bar {
@@ -878,6 +879,7 @@ header::after {
     <button class="pkg-tab-btn" data-tab="realestate">🏢 Real Estate</button>
     <button class="pkg-tab-btn" data-tab="hr">👥 HR &amp; Employees</button>
     <button class="pkg-tab-btn" data-tab="procurement">🛒 Procurement</button>
+    <button class="pkg-tab-btn" data-tab="inventory">📦 Inventory</button>
   </div>
 
   <!-- ══════════════════════════════════════════════
@@ -1144,6 +1146,95 @@ header::after {
           <div class="suggestion ar" onclick="suggest(this)">اعرض المورّدين النشطين مع بيانات التواصل الخاصة بهم</div>
           <div class="suggestion" onclick="suggest(this)">Which suppliers are companies vs individual contacts?</div>
           <div class="suggestion ar" onclick="suggest(this)">ما هي شركات الموردين المسجلة مع أرقام هواتفهم؟</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       INVENTORY tab
+  ══════════════════════════════════════════════ -->
+  <div class="pkg-pane" id="pkg-inventory">
+    <div class="cat-grid">
+
+      <!-- Products & Stock Levels -->
+      <div class="cat-card c-inv">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">📦</div>
+          <div>
+            <div class="cat-name">Products &amp; Stock Levels</div>
+            <div class="cat-model">stock.quant · product.product</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show current stock quantity for all products with their locations</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض الكميات المتوفرة لكل منتج مع موقع التخزين</div>
+          <div class="suggestion" onclick="suggest(this)">Which products have stock below their minimum reorder quantity?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي المنتجات التي وصل مخزونها إلى الحد الأدنى أو أقل؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show total stock value per product category</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض إجمالي قيمة المخزون مصنفاً حسب فئة المنتج</div>
+        </div>
+      </div>
+
+      <!-- Transfers & Movements -->
+      <div class="cat-card c-inv">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🚚</div>
+          <div>
+            <div class="cat-name">Transfers &amp; Movements</div>
+            <div class="cat-model">stock.picking · Receipts &amp; Deliveries</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">List all pending incoming receipts with supplier names and expected dates</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض استلامات البضائع المعلقة مع أسماء الموردين ومواعيد التسليم</div>
+          <div class="suggestion" onclick="suggest(this)">Show all outgoing deliveries that are overdue or still waiting</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي عمليات الشحن الصادرة المتأخرة التي لم تُنجز بعد؟</div>
+          <div class="suggestion" onclick="suggest(this)">How many transfers are in each state (ready, waiting, done)?</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض عدد عمليات نقل المخزون مصنفةً حسب الحالة</div>
+        </div>
+      </div>
+
+      <!-- Warehouses & Locations -->
+      <div class="cat-card c-inv">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🏭</div>
+          <div>
+            <div class="cat-name">Warehouses &amp; Locations</div>
+            <div class="cat-model">stock.warehouse · stock.location</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">List all warehouses with their main input, output and stock locations</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض المستودعات مع مواقع الاستلام والتخزين والشحن لكل منها</div>
+          <div class="suggestion" onclick="suggest(this)">Show stock quantity per internal location across all warehouses</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض كمية المخزون في كل موقع تخزين داخلي</div>
+          <div class="suggestion" onclick="suggest(this)">Which locations currently hold the most stock by value?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي مواقع التخزين ذات أعلى قيمة مخزون حالياً؟</div>
+        </div>
+      </div>
+
+      <!-- Lot & Serial Tracking -->
+      <div class="cat-card c-inv">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🔢</div>
+          <div>
+            <div class="cat-name">Lot &amp; Serial Tracking</div>
+            <div class="cat-model">stock.lot · Traceability</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">List all active lot numbers with their product and current quantity</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض أرقام الدُفعات النشطة مع المنتج والكمية المتبقية</div>
+          <div class="suggestion" onclick="suggest(this)">Show lots expiring within the next 30 days</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي الدُفعات التي ستنتهي صلاحيتها خلال 30 يوماً القادمة؟</div>
+          <div class="suggestion" onclick="suggest(this)">Trace all stock moves for a specific lot number</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض سجل حركة المخزون الكاملة لرقم دفعة معين</div>
         </div>
       </div>
 
