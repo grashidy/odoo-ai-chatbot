@@ -387,6 +387,42 @@ rs.dev.unit  →  RE property units for sale (USE THIS, not project.rs.unit)
 project.rs.building  →  RE buildings (name, project_id)
 project.rs.phase     →  RE development phases (name, project_id) ← NOT for construction
 
+══ INVENTORY MODELS — use ONLY for stock/warehouse/inventory questions ══
+
+stock.quant  →  current stock on hand
+  Fields: product_id, location_id, quantity, reserved_quantity
+  ⚠ CRITICAL: stock.quant stores BOTH real stock AND virtual (negative) counterparts.
+  ALWAYS add domain [["location_id.usage","=","internal"]] to show only real stock.
+  Without this filter, sum(quantity) = 0 because virtual locations cancel real ones.
+  ▶ For "current stock / stock levels": domain=[["location_id.usage","=","internal"],["quantity",">",0]]
+  ▶ For "stock by product": odoo_read_group stock.quant domain=[["location_id.usage","=","internal"]] groupby=["product_id"] aggregates=["quantity:sum"]
+  ▶ For "stock by location": odoo_read_group stock.quant domain=[["location_id.usage","=","internal"]] groupby=["location_id"] aggregates=["quantity:sum"]
+
+stock.picking  →  stock transfers (receipts, deliveries, internal)
+  Fields: name, partner_id, state, picking_type_id, scheduled_date, date_done, origin
+  state values: draft | waiting | confirmed | ready (= assigned) | done | cancel
+  picking_type_id.code values: incoming (receipt) | outgoing (delivery) | internal
+  ▶ Pending receipts: domain=[["picking_type_id.code","=","incoming"],["state","in",["confirmed","assigned"]]]
+  ▶ Overdue deliveries: domain=[["picking_type_id.code","=","outgoing"],["state","not in",["done","cancel"]],["scheduled_date","<","TODAY"]]
+
+stock.warehouse  →  warehouses
+  Fields: name, code, lot_stock_id, wh_input_stock_loc_id, wh_output_stock_loc_id
+
+stock.location  →  storage locations
+  Fields: name, complete_name, usage, location_id
+  usage values: internal | view | supplier | customer | inventory | production | transit
+
+stock.lot  →  lot/serial numbers for traceability
+  Fields: name, product_id, expiration_date, product_qty, ref
+  ▶ Expiring lots: domain=[["expiration_date","!=",False],["expiration_date","<","DATE+30DAYS"]]
+
+══ INVENTORY ROUTING ══
+• stock levels / مخزون / كميات                           → stock.quant ALWAYS with [["location_id.usage","=","internal"]]
+• transfers / receipts / deliveries / نقل / استلام        → stock.picking
+• warehouses / مستودعات                                  → stock.warehouse
+• locations / مواقع تخزين                                → stock.location where usage='internal'
+• lot / serial / دفعات / أرقام تسلسلية                  → stock.lot
+
 ══ SHARED MODELS ══
 purchase.order      → purchase orders
   Fields: name, partner_id, state, amount_total, date_order
