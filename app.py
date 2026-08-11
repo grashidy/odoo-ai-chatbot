@@ -475,53 +475,106 @@ _visitors     = {}
 _visit_lock   = threading.Lock()
 _STATIC_EXTS  = {".js", ".css", ".png", ".ico", ".svg", ".woff", ".woff2", ".ttf", ".map"}
 
-# ── SQLite persistence helpers ─────────────────────────────────────────────────
+# ── Persistent storage: PostgreSQL (primary) or SQLite (fallback) ──────────────
+# PostgreSQL survives Railway redeploys; SQLite is reset on every deploy.
+# Add the Railway PostgreSQL plugin (free) → it auto-sets DATABASE_URL.
 import sqlite3 as _sqlite3
 
-def _db_open():
-    try:
-        conn = _sqlite3.connect(_VISITORS_DB, check_same_thread=False, timeout=10)
-        conn.execute("""CREATE TABLE IF NOT EXISTS visitors (
-            ip TEXT PRIMARY KEY, device TEXT, browser TEXT, os TEXT, ua TEXT,
-            first_seen TEXT, last_seen TEXT, requests INTEGER DEFAULT 1
-        )""")
-        conn.commit()
-        return conn
-    except Exception as _e:
-        logging.warning("Visitors DB init failed (%s) — using in-memory only", _e)
-        return None
+_DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+_USE_PG       = False
+_vdb          = None        # SQLite connection (only used when PG unavailable)
+_vdb_lock     = threading.Lock()
 
-_vdb      = _db_open()
-_vdb_lock = threading.Lock()
+_CREATE_TABLE_SQL = """CREATE TABLE IF NOT EXISTS visitors (
+    ip TEXT PRIMARY KEY, device TEXT, browser TEXT, os TEXT, ua TEXT,
+    first_seen TEXT, last_seen TEXT, requests INTEGER DEFAULT 1
+)"""
+
+def _pg_conn():
+    """Open a fresh autocommit PostgreSQL connection. Caller must close it."""
+    import psycopg2
+    c = psycopg2.connect(_DATABASE_URL)
+    c.autocommit = True
+    return c
+
+def _init_visitors_db():
+    global _USE_PG, _vdb
+    if _DATABASE_URL:
+        try:
+            conn = _pg_conn()
+            with conn.cursor() as cur:
+                cur.execute(_CREATE_TABLE_SQL)
+            conn.close()
+            _USE_PG = True
+            logging.info("Visitors: PostgreSQL backend (data persists across redeploys)")
+            return
+        except Exception as _e:
+            logging.warning("PostgreSQL unavailable (%s) — falling back to SQLite", _e)
+    # SQLite fallback (resets on redeploy unless Railway Volume is mounted)
+    try:
+        _vdb = _sqlite3.connect(_VISITORS_DB, check_same_thread=False, timeout=10)
+        _vdb.execute(_CREATE_TABLE_SQL)
+        _vdb.commit()
+        logging.info("Visitors: SQLite backend (%s)", _VISITORS_DB)
+    except Exception as _e:
+        logging.warning("Visitors DB init failed (%s) — in-memory only", _e)
+
+_init_visitors_db()
 
 def _db_upsert(ip, d):
-    if not _vdb:
-        return
-    with _vdb_lock:
+    if _USE_PG:
         try:
-            _vdb.execute("""INSERT INTO visitors(ip,device,browser,os,ua,first_seen,last_seen,requests)
-                            VALUES(?,?,?,?,?,?,?,?)
-                            ON CONFLICT(ip) DO UPDATE SET last_seen=excluded.last_seen, requests=excluded.requests""",
-                         (ip, d["device"], d["browser"], d["os"], d["ua"],
-                          d["first_seen"], d["last_seen"], d["requests"]))
-            _vdb.commit()
+            conn = _pg_conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO visitors(ip,device,browser,os,ua,first_seen,last_seen,requests)
+                       VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
+                       ON CONFLICT(ip) DO UPDATE
+                       SET last_seen=EXCLUDED.last_seen, requests=EXCLUDED.requests""",
+                    (ip, d["device"], d["browser"], d["os"], d["ua"],
+                     d["first_seen"], d["last_seen"], d["requests"]))
+            conn.close()
         except Exception as _e:
-            logging.warning("Visitors DB write error: %s", _e)
+            logging.warning("PG upsert error: %s", _e)
+    elif _vdb:
+        with _vdb_lock:
+            try:
+                _vdb.execute(
+                    """INSERT INTO visitors(ip,device,browser,os,ua,first_seen,last_seen,requests)
+                       VALUES(?,?,?,?,?,?,?,?)
+                       ON CONFLICT(ip) DO UPDATE SET last_seen=excluded.last_seen, requests=excluded.requests""",
+                    (ip, d["device"], d["browser"], d["os"], d["ua"],
+                     d["first_seen"], d["last_seen"], d["requests"]))
+                _vdb.commit()
+            except Exception as _e:
+                logging.warning("SQLite write error: %s", _e)
 
 def _db_load():
-    if not _vdb:
-        return {}
-    try:
-        rows = _vdb.execute("SELECT ip,device,browser,os,ua,first_seen,last_seen,requests FROM visitors").fetchall()
-        return {r[0]: {"device":r[1],"browser":r[2],"os":r[3],"ua":r[4],
-                       "first_seen":r[5],"last_seen":r[6],"requests":r[7]} for r in rows}
-    except Exception as _e:
-        logging.warning("Visitors DB load error: %s", _e)
-        return {}
+    if _USE_PG:
+        try:
+            conn = _pg_conn()
+            with conn.cursor() as cur:
+                cur.execute("SELECT ip,device,browser,os,ua,first_seen,last_seen,requests FROM visitors ORDER BY last_seen DESC")
+                rows = cur.fetchall()
+            conn.close()
+            return {r[0]: {"device":r[1],"browser":r[2],"os":r[3],"ua":r[4],
+                           "first_seen":r[5],"last_seen":r[6],"requests":r[7]} for r in rows}
+        except Exception as _e:
+            logging.warning("PG load error: %s", _e)
+            return {}
+    if _vdb:
+        try:
+            rows = _vdb.execute("SELECT ip,device,browser,os,ua,first_seen,last_seen,requests FROM visitors").fetchall()
+            return {r[0]: {"device":r[1],"browser":r[2],"os":r[3],"ua":r[4],
+                           "first_seen":r[5],"last_seen":r[6],"requests":r[7]} for r in rows}
+        except Exception as _e:
+            logging.warning("SQLite load error: %s", _e)
+    return {}
 
 # Load persisted data into memory at startup
 _visitors.update(_db_load())
-logging.info("Visitors loaded from DB: %d records", len(_visitors))
+logging.info("Visitors loaded from DB: %d records (backend: %s)",
+             len(_visitors), "PostgreSQL" if _USE_PG else "SQLite")
 
 # ── Parser helpers ─────────────────────────────────────────────────────────────
 def _parse_device(ua):
