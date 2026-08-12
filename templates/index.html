@@ -846,7 +846,17 @@ body.impl-mode .send-btn { background: linear-gradient(135deg, #7c3aed 0%, #a78b
     <button class="hbtn"        id="tab-reports" onclick="switchTab('reports')">📊 Dashboard</button>
     <a href="/upload-boq" class="hbtn" style="text-decoration:none">📥 Import BOQ</a>
     <button class="tts-btn" id="tts-toggle-btn" onclick="toggleTTS()" title="Voice on/off">🔇</button>
-    <button class="hbtn impl-btn" id="impl-toggle-btn" onclick="toggleImplementer()" title="Implementer Mode — meetings, MOM, create tasks">⚡ Implementer</button>
+    <div id="mode-pill" style="
+      display:inline-flex;align-items:center;gap:6px;
+      border-radius:20px;padding:4px 12px;font-size:11.5px;font-weight:700;
+      border:1.5px solid rgba(13,158,110,0.4);
+      background:rgba(13,158,110,0.08);color:#12c789;
+      white-space:nowrap;transition:all .2s;user-select:none;
+    ">
+      <span id="mode-pill-dot" style="width:7px;height:7px;border-radius:50%;background:#12c789;box-shadow:0 0 6px #12c789;flex-shrink:0;transition:all .2s"></span>
+      <span id="mode-pill-label">🤖 Assistant</span>
+    </div>
+    <button class="hbtn impl-btn" id="impl-toggle-btn" onclick="toggleImplementer()" title="Click to switch mode">⚡ Implementer</button>
     <button class="hbtn new" onclick="newChat()">✚ New</button>
     <button class="hbtn" onclick="toggleSettings()">⚙ Settings</button>
   </div>
@@ -1405,7 +1415,26 @@ function toggleImplementer() {
   inp.placeholder = isImpl
     ? 'Implementer mode — describe meeting notes, decisions, or ask to create tasks…'
     : 'Ask in Arabic or English…';
-  if (!isImpl && meetingActive) implEndMeeting(true);  // auto-end meeting on mode exit
+  // Update mode pill
+  const pill  = document.getElementById('mode-pill');
+  const dot   = document.getElementById('mode-pill-dot');
+  const label = document.getElementById('mode-pill-label');
+  if (isImpl) {
+    pill.style.borderColor  = 'rgba(139,92,246,0.5)';
+    pill.style.background   = 'rgba(139,92,246,0.10)';
+    pill.style.color        = '#a78bfa';
+    dot.style.background    = '#a78bfa';
+    dot.style.boxShadow     = '0 0 6px #a78bfa';
+    label.textContent       = '⚡ Implementer';
+  } else {
+    pill.style.borderColor  = 'rgba(13,158,110,0.4)';
+    pill.style.background   = 'rgba(13,158,110,0.08)';
+    pill.style.color        = '#12c789';
+    dot.style.background    = '#12c789';
+    dot.style.boxShadow     = '0 0 6px #12c789';
+    label.textContent       = '🤖 Assistant';
+  }
+  if (!isImpl && meetingActive) implEndMeeting(true);
 }
 
 function implStartMeeting() {
