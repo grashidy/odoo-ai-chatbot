@@ -291,6 +291,59 @@ def run_tool(name, args):
             })
         return json.dumps({"error": err, "hint": "Try odoo_get_fields to check available fields"})
 
+# ── Implementer tools: read tools + odoo_create ───────────────────────────────
+IMPLEMENTER_TOOLS = TOOLS + [
+    {
+        "type": "function",
+        "function": {
+            "name": "odoo_create",
+            "description": (
+                "Create a new record in Odoo (project task, calendar event, internal note, etc.). "
+                "ALWAYS call odoo_search first to resolve IDs (project_id, user_id, stage_id) "
+                "before calling this tool — never guess integer IDs."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "model": {
+                        "type": "string",
+                        "description": "Odoo model name. E.g. project.task, calendar.event, note.note"
+                    },
+                    "values": {
+                        "type": "object",
+                        "description": (
+                            "Field values as a JSON object. "
+                            "project.task: {name, project_id (int), date_deadline (YYYY-MM-DD), description}. "
+                            "calendar.event: {name, start (YYYY-MM-DD HH:MM:SS), stop, description}. "
+                            "note.note: {name, memo}."
+                        )
+                    }
+                },
+                "required": ["model", "values"]
+            }
+        }
+    }
+]
+
+def _run_implementer_tool(name, args):
+    """Extended tool runner that handles all read tools + odoo_create."""
+    if name == "odoo_create":
+        try:
+            model  = args.get("model", "").strip()
+            values = args.get("values", {})
+            if not model:
+                return json.dumps({"error": "model is required"})
+            if not isinstance(values, dict) or not values:
+                return json.dumps({"error": "values must be a non-empty object"})
+            new_id = odoo_call(model, "create", [values])
+            return json.dumps({"created_id": new_id, "model": model, "status": "ok"})
+        except Exception as e:
+            err = str(e)
+            if "Access Denied" in err or "Fault 3" in err:
+                return json.dumps({"error": "Odoo Access Denied — API key may lack write permissions"})
+            return json.dumps({"error": err})
+    return run_tool(name, args)
+
 # ── System prompt ──────────────────────────────────────────────────────────────
 def get_system_prompt():
     from datetime import date as _date
@@ -502,6 +555,82 @@ CRITICAL RULES:
 - BEHIND SCHEDULE: ONLY sub.project.plan.operation has real date ranges; use domain [{{"date_to","<","{today_date}"}},{{"date_to","!=",False}}]
   main.project.plan.operation.date = creation timestamp only — NEVER use it for overdue/schedule checks"""
 
+def get_implementer_system_prompt():
+    from datetime import date as _date
+    today_date = _date.today().isoformat()
+    return f"""You are an Odoo Implementation Partner — an AI that runs meetings, captures minutes of meeting (MOM), and creates action items directly in the Odoo ERP system. Reply in the same language as the user (Arabic or English).
+
+TODAY = {today_date}
+
+══ YOUR ROLE ══
+You are NOT a read-only query assistant. You can:
+1. SEARCH Odoo data to look up projects, employees, tasks
+2. CREATE records: project tasks (project.task), calendar events (calendar.event)
+3. Generate structured bilingual MOM (Minutes of Meeting)
+4. Track meeting decisions and action items
+
+══ MEETING FLOW ══
+When user says "start meeting" / "ابدأ اجتماع" / "بدأ الاجتماع":
+- Acknowledge: tell user recording has started
+- Ask (once): meeting topic + attendees names + related project (if any)
+- Respond concisely — do NOT ask multiple clarification questions
+
+During meeting (user sends notes, decisions, action items):
+- Acknowledge each input briefly
+- Keep track of what was said for the MOM
+
+When user says "generate MOM" / "استخرج المحضر" / "end meeting" / "إنهاء الاجتماع":
+- Output a full structured MOM in this exact format (bilingual):
+
+---
+## 📋 محضر اجتماع | Minutes of Meeting
+**التاريخ / Date:** {today_date}
+**الموضوع / Topic:** [meeting topic]
+**الحضور / Attendees:** [list of names]
+
+### القرارات | Decisions
+1. [decision 1]
+2. [decision 2]
+
+### بنود العمل | Action Items
+| # | المهمة / Task | المسؤول / Owner | الموعد / Deadline |
+|---|---|---|---|
+| 1 | [task description] | [owner name] | [YYYY-MM-DD] |
+
+### ملاحظات | Notes
+[any additional notes]
+
+---
+
+After generating MOM, ask: "هل تريد إنشاء المهام في Odoo؟ / Should I create these tasks in Odoo?"
+
+══ CREATING ODOO TASKS FROM ACTION ITEMS ══
+When user confirms to create tasks:
+1. Call odoo_search on project.project (fields=[id,name], domain=[]) to find project_id
+2. Call odoo_create on project.task with:
+   - name: action item description
+   - project_id: integer ID found in step 1
+   - date_deadline: YYYY-MM-DD (from action item)
+3. Confirm each: "✅ تم إنشاء المهمة '[name]' بـ ID=[id] في مشروع '[project]'"
+
+For calendar.event creation (schedule a follow-up meeting):
+- name: meeting title
+- start: "YYYY-MM-DD 09:00:00"
+- stop: "YYYY-MM-DD 10:00:00"
+
+══ SCOPE ══
+You operate within Odoo ERP only. Answer questions about business data, create Odoo records, and generate meeting documentation. Refuse unrelated questions politely.
+
+RULES:
+- ALWAYS search before creating — never guess or invent integer IDs
+- Batch all needed searches in ONE response before creating
+- Confirm every creation with its Odoo record ID
+- Format output with markdown — tables for action items, headers for MOM sections
+- Arabic or English — always match the user's language
+- For MOM: use bilingual labels (Arabic / English) in all section headers
+
+CHARTS: CHART_BAR:{{"title":"T","labels":["A","B"],"data":[10,20]}}  CHART_PIE:{{"title":"T","labels":["A"],"data":[1]}}"""
+
 # ── Flask app ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 
@@ -705,16 +834,22 @@ def chat():
     data = request.json
     history = data.get("messages", [])
     override_key = data.get("api_key", "").strip() or None
+    mode = data.get("mode", "assistant")          # "assistant" or "implementer"
     client, _ai_model = _make_chat_client(override_key)
 
     if not client:
         return jsonify({"error": "AI API key is required. Set GEMINI_API_KEY in Railway Variables."}), 400
 
+    # Route to the correct system prompt and tool set based on mode
+    _system_prompt = get_implementer_system_prompt() if mode == "implementer" else get_system_prompt()
+    _tools         = IMPLEMENTER_TOOLS               if mode == "implementer" else TOOLS
+    _tool_runner   = _run_implementer_tool            if mode == "implementer" else run_tool
+
     def generate():
         try:
             # Keep only last 4 messages from history to limit token usage
             recent = history[-4:] if len(history) > 4 else history
-            messages = [{"role": "system", "content": get_system_prompt()}]
+            messages = [{"role": "system", "content": _system_prompt}]
             for m in recent:
                 messages.append({"role": m["role"], "content": m.get("content") or ""})
 
@@ -740,7 +875,7 @@ def chat():
                         call_kw = dict(
                             model=_ai_model,
                             messages=messages,
-                            tools=TOOLS,
+                            tools=_tools,
                             tool_choice="none" if _has_tool_results else "auto",
                             max_tokens=1800,
                             temperature=0.1,
@@ -890,7 +1025,7 @@ def chat():
 
                 def _run_one(n, a, tid):
                     try:
-                        res = run_tool(n, a)
+                        res = _tool_runner(n, a)
                     except Exception as _te:
                         res = json.dumps({"error": str(_te)})
                     with _t_lock:

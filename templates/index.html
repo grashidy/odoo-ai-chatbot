@@ -774,6 +774,53 @@ header::after {
 .kpi-box .kpi-val { font-size: 22px; font-weight: 700; color: var(--gold2); font-variant-numeric: tabular-nums; }
 .kpi-box .kpi-lbl { font-size: 10.5px; color: #8ab8d6; margin-top: 3px; font-weight: 600; letter-spacing: 0.3px; }
 
+/* ── Implementer mode ──────────────────────────────────────────── */
+.hbtn.impl-btn:hover { border-color: #8b5cf6; color: #a78bfa; }
+.hbtn.impl-btn.active { border-color: #8b5cf6 !important; color: #a78bfa !important; background: rgba(139,92,246,0.10) !important; }
+
+#impl-bar {
+  display: none; background: linear-gradient(90deg, rgba(139,92,246,0.06) 0%, transparent 100%);
+  border-bottom: 1px solid rgba(139,92,246,0.18);
+  padding: 6px 20px; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap;
+}
+#impl-bar.show { display: flex; }
+
+.impl-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(139,92,246,0.10); border: 1px solid rgba(139,92,246,0.28);
+  border-radius: 20px; padding: 3px 10px;
+  font-size: 11px; color: #a78bfa; font-weight: 600; white-space: nowrap;
+}
+.impl-dot { width:6px;height:6px;border-radius:50%;background:#a78bfa;box-shadow:0 0 5px #a78bfa; animation: blink-dot 2.2s infinite; }
+
+.meeting-badge {
+  display: none; align-items: center; gap: 5px;
+  background: rgba(13,158,110,0.08); border: 1px solid rgba(13,158,110,0.2);
+  border-radius: 20px; padding: 3px 10px;
+  font-size: 11px; color: #12c789; font-weight: 600; white-space: nowrap;
+}
+.meeting-badge.show { display: inline-flex; }
+.meeting-dot { width:6px;height:6px;border-radius:50%;background:#12c789;box-shadow:0 0 5px #12c789;animation:blink-dot 1.5s infinite; }
+
+.impl-ctrl {
+  background: var(--card); border: 1px solid rgba(139,92,246,0.28);
+  border-radius: 6px; padding: 4px 11px;
+  color: #a78bfa; font-size: 11.5px; font-weight: 600;
+  cursor: pointer; font-family: inherit; transition: all .12s; white-space: nowrap;
+}
+.impl-ctrl:hover { background: rgba(139,92,246,0.10); border-color: #8b5cf6; }
+.impl-ctrl.go { border-color: var(--green); color: var(--green2); background: rgba(13,158,110,0.06); }
+.impl-ctrl.go:hover { background: rgba(13,158,110,0.14); }
+.impl-ctrl.stop { border-color: var(--red); color: var(--red); }
+.impl-ctrl.stop:hover { background: rgba(220,53,69,0.10); }
+
+#impl-timer { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; font-family: monospace; display:none; }
+#impl-timer.show { display:inline; }
+
+body.impl-mode #user-input { border-color: rgba(139,92,246,0.35); }
+body.impl-mode #user-input:focus { border-color: #8b5cf6; box-shadow: 0 0 0 2px rgba(139,92,246,0.10); }
+body.impl-mode .send-btn { background: linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%); box-shadow: 0 2px 10px rgba(139,92,246,0.4); }
+
 /* ── Responsive ────────────────────────────────────────────────── */
 @media (max-width: 680px) {
   .cat-grid { grid-template-columns: 1fr; }
@@ -799,6 +846,7 @@ header::after {
     <button class="hbtn"        id="tab-reports" onclick="switchTab('reports')">📊 Dashboard</button>
     <a href="/upload-boq" class="hbtn" style="text-decoration:none">📥 Import BOQ</a>
     <button class="tts-btn" id="tts-toggle-btn" onclick="toggleTTS()" title="Voice on/off">🔇</button>
+    <button class="hbtn impl-btn" id="impl-toggle-btn" onclick="toggleImplementer()" title="Implementer Mode — meetings, MOM, create tasks">⚡ Implementer</button>
     <button class="hbtn new" onclick="newChat()">✚ New</button>
     <button class="hbtn" onclick="toggleSettings()">⚙ Settings</button>
   </div>
@@ -1244,6 +1292,18 @@ header::after {
 </template>
 
 <!-- ── Messages ───────────────────────────────────────────────────── -->
+<!-- ── Implementer toolbar (hidden until mode is active) ──────────── -->
+<div id="impl-bar">
+  <div class="impl-badge"><div class="impl-dot"></div>Implementer Mode</div>
+  <div class="meeting-badge" id="meeting-badge"><div class="meeting-dot"></div>Meeting Active <span id="impl-timer"></span></div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+    <button class="impl-ctrl go"  id="impl-start-btn" onclick="implStartMeeting()" title="Start a new meeting session">📋 Start Meeting</button>
+    <button class="impl-ctrl"     id="impl-mom-btn"   onclick="implGenerateMOM()"  title="Generate Minutes of Meeting" style="display:none">📄 Generate MOM</button>
+    <button class="impl-ctrl stop" id="impl-end-btn"  onclick="implEndMeeting()"   title="End meeting" style="display:none">🔴 End Meeting</button>
+  </div>
+  <div style="margin-left:auto;font-size:10.5px;color:#527fa8">Ask AI to create tasks · run meetings · capture decisions</div>
+</div>
+
 <div id="messages">
   <div id="welcome"></div>
 </div>
@@ -1328,6 +1388,85 @@ header::after {
 let history = [], streaming = false, chartCounter = 0;
 let apiKey = localStorage.getItem('groq_key') || '';
 const reportCharts = {};
+
+/* ── Implementer mode state ──────────────────────────────────────── */
+let appMode      = 'assistant';   // 'assistant' | 'implementer'
+let meetingActive = false;
+let meetingStart  = null;
+let _timerInterval = null;
+
+function toggleImplementer() {
+  appMode = appMode === 'implementer' ? 'assistant' : 'implementer';
+  const isImpl = appMode === 'implementer';
+  document.getElementById('impl-toggle-btn').classList.toggle('active', isImpl);
+  document.getElementById('impl-bar').classList.toggle('show', isImpl);
+  document.body.classList.toggle('impl-mode', isImpl);
+  const inp = document.getElementById('user-input');
+  inp.placeholder = isImpl
+    ? 'Implementer mode — describe meeting notes, decisions, or ask to create tasks…'
+    : 'Ask in Arabic or English…';
+  if (!isImpl && meetingActive) implEndMeeting(true);  // auto-end meeting on mode exit
+}
+
+function implStartMeeting() {
+  if (meetingActive) return;
+  meetingActive = true;
+  meetingStart  = new Date();
+  document.getElementById('meeting-badge').classList.add('show');
+  document.getElementById('impl-start-btn').style.display = 'none';
+  document.getElementById('impl-mom-btn').style.display   = '';
+  document.getElementById('impl-end-btn').style.display   = '';
+  const timer = document.getElementById('impl-timer');
+  timer.classList.add('show');
+  _timerInterval = setInterval(() => {
+    const s = Math.floor((Date.now() - meetingStart) / 1000);
+    timer.textContent = `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  }, 1000);
+  // Inject a meeting-start message into the chat
+  const startMsg = '📋 Meeting session started. Please tell me: **meeting topic**, **attendees**, and **related project** (if any).';
+  _injectAssistantMsg(startMsg);
+}
+
+function implEndMeeting(silent) {
+  if (!meetingActive && !silent) return;
+  meetingActive = false;
+  clearInterval(_timerInterval);
+  document.getElementById('meeting-badge').classList.remove('show');
+  document.getElementById('impl-start-btn').style.display = '';
+  document.getElementById('impl-mom-btn').style.display   = 'none';
+  document.getElementById('impl-end-btn').style.display   = 'none';
+  document.getElementById('impl-timer').classList.remove('show');
+  if (!silent) {
+    _injectUserMsg('End meeting and generate MOM');
+    // trigger a send so AI generates MOM
+    document.getElementById('user-input').value = 'End meeting and generate the full MOM document.';
+    sendMessage();
+  }
+}
+
+function implGenerateMOM() {
+  document.getElementById('user-input').value = 'Generate the complete Minutes of Meeting (MOM) document based on everything discussed so far.';
+  sendMessage();
+}
+
+function _injectAssistantMsg(text) {
+  const { appendMsg, renderMD } = _getHelpers();
+  const bub = appendMsg('assistant', '', null);
+  const { html } = renderMD(text);
+  bub.innerHTML = html;
+  history.push({ role: 'assistant', content: text });
+  scrollBottom();
+}
+
+function _injectUserMsg(text) {
+  const { appendMsg } = _getHelpers();
+  appendMsg('user', `<span>${text.replace(/</g,'&lt;')}</span>`, 'ltr');
+  history.push({ role: 'user', content: text });
+}
+
+function _getHelpers() {
+  return { appendMsg, renderMD };
+}
 
 if (apiKey) document.getElementById('api-key-input').value = apiKey;
 renderWelcome();
@@ -1911,7 +2050,7 @@ async function sendMessage() {
     const chatUrl = window.location.pathname.startsWith('/ai') ? '/ai/chat' : '/chat';
     const res = await fetch(chatUrl, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ messages: history, api_key: key })
+      body: JSON.stringify({ messages: history, api_key: key, mode: appMode })
     });
     if (!res.ok) {
       const err = await res.json().catch(()=>({error:'Unknown error'}));
