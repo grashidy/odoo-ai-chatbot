@@ -820,6 +820,8 @@ header::after {
 body.impl-mode #user-input { border-color: rgba(139,92,246,0.35); }
 body.impl-mode #user-input:focus { border-color: #8b5cf6; box-shadow: 0 0 0 2px rgba(139,92,246,0.10); }
 body.impl-mode .send-btn { background: linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%); box-shadow: 0 2px 10px rgba(139,92,246,0.4); }
+body.impl-mode header { border-bottom-color: rgba(139,92,246,0.3); }
+body.impl-mode header::after { background: linear-gradient(90deg, transparent 0%, #8b5cf6 40%, #a78bfa 70%, transparent 100%); opacity: 0.6; }
 
 /* ── Responsive ────────────────────────────────────────────────── */
 @media (max-width: 680px) {
@@ -846,17 +848,19 @@ body.impl-mode .send-btn { background: linear-gradient(135deg, #7c3aed 0%, #a78b
     <button class="hbtn"        id="tab-reports" onclick="switchTab('reports')">📊 Dashboard</button>
     <a href="/upload-boq" class="hbtn" style="text-decoration:none">📥 Import BOQ</a>
     <button class="tts-btn" id="tts-toggle-btn" onclick="toggleTTS()" title="Voice on/off">🔇</button>
-    <div id="mode-pill" style="
-      display:inline-flex;align-items:center;gap:6px;
-      border-radius:20px;padding:4px 12px;font-size:11.5px;font-weight:700;
-      border:1.5px solid rgba(13,158,110,0.4);
-      background:rgba(13,158,110,0.08);color:#12c789;
-      white-space:nowrap;transition:all .2s;user-select:none;
-    ">
-      <span id="mode-pill-dot" style="width:7px;height:7px;border-radius:50%;background:#12c789;box-shadow:0 0 6px #12c789;flex-shrink:0;transition:all .2s"></span>
-      <span id="mode-pill-label">🤖 Assistant</span>
+    <!-- Mode segmented toggle -->
+    <div id="mode-seg" style="display:inline-flex;border-radius:8px;border:1.5px solid var(--border2);overflow:hidden;flex-shrink:0;">
+      <button id="seg-assistant" onclick="setMode('assistant')" style="
+        padding:5px 13px;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;
+        border:none;border-right:1px solid var(--border2);transition:all .18s;
+        background:#0d9e6e22;color:#12c789;white-space:nowrap;
+      ">🤖 Assistant</button>
+      <button id="seg-implementer" onclick="setMode('implementer')" style="
+        padding:5px 13px;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;
+        border:none;transition:all .18s;
+        background:var(--card);color:var(--text3);white-space:nowrap;
+      ">⚡ Implementer</button>
     </div>
-    <button class="hbtn impl-btn" id="impl-toggle-btn" onclick="toggleImplementer()" title="Click to switch mode">⚡ Implementer</button>
     <button class="hbtn new" onclick="newChat()">✚ New</button>
     <button class="hbtn" onclick="toggleSettings()">⚙ Settings</button>
   </div>
@@ -1405,37 +1409,32 @@ let meetingActive = false;
 let meetingStart  = null;
 let _timerInterval = null;
 
-function toggleImplementer() {
-  appMode = appMode === 'implementer' ? 'assistant' : 'implementer';
-  const isImpl = appMode === 'implementer';
-  document.getElementById('impl-toggle-btn').classList.toggle('active', isImpl);
-  document.getElementById('impl-bar').classList.toggle('show', isImpl);
-  document.body.classList.toggle('impl-mode', isImpl);
-  const inp = document.getElementById('user-input');
-  inp.placeholder = isImpl
-    ? 'Implementer mode — describe meeting notes, decisions, or ask to create tasks…'
-    : 'Ask in Arabic or English…';
-  // Update mode pill
-  const pill  = document.getElementById('mode-pill');
-  const dot   = document.getElementById('mode-pill-dot');
-  const label = document.getElementById('mode-pill-label');
+function setMode(m) {
+  if (appMode === m) return;
+  appMode = m;
+  const isImpl = m === 'implementer';
+  // Segmented toggle visual
+  const sA = document.getElementById('seg-assistant');
+  const sI = document.getElementById('seg-implementer');
   if (isImpl) {
-    pill.style.borderColor  = 'rgba(139,92,246,0.5)';
-    pill.style.background   = 'rgba(139,92,246,0.10)';
-    pill.style.color        = '#a78bfa';
-    dot.style.background    = '#a78bfa';
-    dot.style.boxShadow     = '0 0 6px #a78bfa';
-    label.textContent       = '⚡ Implementer';
+    sA.style.background = 'var(--card)'; sA.style.color = 'var(--text3)'; sA.style.boxShadow = 'none';
+    sI.style.background = 'rgba(139,92,246,0.18)'; sI.style.color = '#a78bfa'; sI.style.boxShadow = 'inset 0 0 0 1.5px #8b5cf6';
+    document.getElementById('mode-seg').style.borderColor = 'rgba(139,92,246,0.5)';
   } else {
-    pill.style.borderColor  = 'rgba(13,158,110,0.4)';
-    pill.style.background   = 'rgba(13,158,110,0.08)';
-    pill.style.color        = '#12c789';
-    dot.style.background    = '#12c789';
-    dot.style.boxShadow     = '0 0 6px #12c789';
-    label.textContent       = '🤖 Assistant';
+    sI.style.background = 'var(--card)'; sI.style.color = 'var(--text3)'; sI.style.boxShadow = 'none';
+    sA.style.background = 'rgba(13,158,110,0.14)'; sA.style.color = '#12c789'; sA.style.boxShadow = 'inset 0 0 0 1.5px #0d9e6e';
+    document.getElementById('mode-seg').style.borderColor = 'rgba(13,158,110,0.4)';
   }
+  // Header accent line
+  document.querySelector('header::after') && null; // CSS handles via body class
+  document.body.classList.toggle('impl-mode', isImpl);
+  document.getElementById('impl-bar').classList.toggle('show', isImpl);
+  document.getElementById('user-input').placeholder = isImpl
+    ? 'Implementer mode — meeting notes, decisions, create tasks…'
+    : 'Ask in Arabic or English…';
   if (!isImpl && meetingActive) implEndMeeting(true);
 }
+function toggleImplementer() { setMode(appMode === 'implementer' ? 'assistant' : 'implementer'); }
 
 function implStartMeeting() {
   if (meetingActive) return;
@@ -1499,6 +1498,11 @@ function _getHelpers() {
 
 if (apiKey) document.getElementById('api-key-input').value = apiKey;
 renderWelcome();
+// Init segmented toggle to assistant (active)
+(function(){
+  const sA = document.getElementById('seg-assistant');
+  if (sA) { sA.style.background='rgba(13,158,110,0.14)'; sA.style.color='#12c789'; sA.style.boxShadow='inset 0 0 0 1.5px #0d9e6e'; }
+})();
 
 /* ── Welcome ─────────────────────────────────────────────────────── */
 function renderWelcome() {
