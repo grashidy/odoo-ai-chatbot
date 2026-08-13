@@ -322,11 +322,31 @@ IMPLEMENTER_TOOLS = TOOLS + [
                 "required": ["model", "values"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "odoo_post_chatter",
+            "description": (
+                "Post a MOM (Minutes of Meeting) or internal note to the chatter of an Odoo record. "
+                "Use this AFTER generating the MOM to save it permanently on a project task. "
+                "ALWAYS call odoo_search first to find the task_id — never guess IDs."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "model":     {"type": "string",  "description": "Odoo model — usually 'project.task' or 'project.project'."},
+                    "record_id": {"type": "integer", "description": "Integer ID of the record to post on."},
+                    "body":      {"type": "string",  "description": "The MOM content (plain text or HTML)."}
+                },
+                "required": ["model", "record_id", "body"]
+            }
+        }
     }
 ]
 
 def _run_implementer_tool(name, args):
-    """Extended tool runner that handles all read tools + odoo_create."""
+    """Extended tool runner: read tools + odoo_create + odoo_post_chatter."""
     if name == "odoo_create":
         try:
             model  = args.get("model", "").strip()
@@ -342,6 +362,27 @@ def _run_implementer_tool(name, args):
             if "Access Denied" in err or "Fault 3" in err:
                 return json.dumps({"error": "Odoo Access Denied — API key may lack write permissions"})
             return json.dumps({"error": err})
+
+    if name == "odoo_post_chatter":
+        try:
+            model     = args.get("model", "project.task").strip()
+            record_id = int(args.get("record_id", 0))
+            body      = args.get("body", "").strip()
+            if not record_id or not body:
+                return json.dumps({"error": "record_id and body are required"})
+            odoo_call(model, "message_post", [[record_id]], {
+                "body": body,
+                "message_type": "comment",
+                "subtype_xmlid": "mail.mt_note"
+            })
+            return json.dumps({"status": "ok", "model": model, "record_id": record_id,
+                               "message": "MOM saved to Odoo chatter successfully"})
+        except Exception as e:
+            err = str(e)
+            if "Access Denied" in err or "Fault 3" in err:
+                return json.dumps({"error": "Odoo Access Denied — API key may lack write permissions"})
+            return json.dumps({"error": err})
+
     return run_tool(name, args)
 
 # ── System prompt ──────────────────────────────────────────────────────────────
@@ -602,7 +643,13 @@ When user says "generate MOM" / "استخرج المحضر" / "end meeting" / "�
 
 ---
 
-After generating MOM, ask: "هل تريد إنشاء المهام في Odoo؟ / Should I create these tasks in Odoo?"
+After generating MOM, ask: "هل تريد حفظ المحضر في Odoo وإنشاء المهام؟ / Should I save the MOM to Odoo and create the tasks?"
+
+══ SAVING MOM TO ODOO CHATTER ══
+When user confirms to save the MOM:
+1. Call odoo_search on project.task (fields=[id,name,project_id], domain=[]) to find the right task
+2. Call odoo_post_chatter with model="project.task", record_id=<task_id>, body=<full MOM text>
+3. Confirm: "✅ تم حفظ المحضر في Odoo على المهمة '[task name]' (ID=[id])"
 
 ══ CREATING ODOO TASKS FROM ACTION ITEMS ══
 When user confirms to create tasks:
