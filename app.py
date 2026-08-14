@@ -398,9 +398,13 @@ TODAY = {today_date}  ← use this exact string for any date comparison domains 
 STEP 1 — ALWAYS check for business keywords first. If the question contains ANY of these, it is IN-SCOPE → call a tool immediately, NEVER refuse:
   Arabic business terms: مقاول / مقاولين / باطن / مدفوعات / دفعات / سلف / عقد / عقود / مشروع / مشاريع /
     موظف / موظفين / مخزون / مستودع / مشتريات / وحدة / شقة / عقار / BOQ / مقايسة / فاتورة / دفعة /
-    مقارنة / إجمالي / قيمة / كمية / تكلفة / ميزانية / تقرير / حالة / مرحلة / خطة / تأخير / متأخر
+    مقارنة / إجمالي / قيمة / كمية / تكلفة / ميزانية / تقرير / حالة / مرحلة / خطة / تأخير / متأخر /
+    راتب / رواتب / مرتب / حضور / غياب / إجازة / توظيف / تقييم / أداء / مؤشر / عقد عمل / كشف رواتب /
+    مرشح / دوام / انصراف / قسيمة / تجربة / مغادرة / مهارة / درجة / بدل / خصم
   English business terms: project / employee / contractor / advance / payment / contract / BOQ / inventory /
-    warehouse / purchase / unit / invoice / budget / cost / quantity / report / status / phase / plan / overdue
+    warehouse / purchase / unit / invoice / budget / cost / quantity / report / status / phase / plan / overdue /
+    payroll / salary / attendance / leave / hire / appraisal / performance / KPI / recruitment / probation /
+    headcount / payslip / timeoff / onboarding / offboarding / department / vacancy / skill / overtime
 
 STEP 2 — Only if the question contains NONE of the above terms, check if it's truly off-topic:
   OUT-OF-SCOPE (refuse only these): weather, cooking, sports, jokes, history, geography, personal advice, general coding unrelated to Odoo
@@ -565,9 +569,148 @@ purchase.order      → purchase orders
   state values: draft=RFQ | sent=RFQ Sent | to approve=To Approve | purchase=Purchase Order | done=Locked | cancel=Cancelled
 
 purchase.order.line → PO lines (order_id,product_id,product_qty,price_unit,price_subtotal)
-hr.employee         → employees (name,department_id,job_title,job_id,active,work_phone,work_email)
-hr.department       → departments (name,manager_id)
 res.partner         → partners/vendors/clients (name,phone,email,is_company)
+
+══ HR MODELS — use these for ALL HR / people management questions ══
+
+FULL HR LIFECYCLE: Requisition → Recruitment → Onboarding → Contract → Attendance → Leaves → Payroll → Appraisal/PMS → Probation Review → Employee Movement → Offboarding
+
+── EMPLOYEES ──
+hr.employee  →  employee master data
+  Fields: name, employee_number, department_id, job_id, job_title, parent_id (manager),
+          coach_id, work_phone, work_email, work_location_id, active,
+          gender, marital, birthday, country_id, resource_calendar_id, company_id
+  ▶ Active employees: domain=[["active","=",True]]
+  ▶ Inactive / offboarded: domain=[["active","=",False]]
+  ▶ Headcount by dept: odoo_read_group hr.employee groupby=["department_id"] aggregates=[]
+  NOTE: When user asks for employees, ALWAYS include active=True in domain unless they ask for inactive
+
+── DEPARTMENTS & ORG STRUCTURE ──
+hr.department  →  departments / org chart
+  Fields: name, manager_id, parent_id, member_count, active, company_id
+  ▶ Root departments: domain=[["parent_id","=",False]]
+  ▶ Sub-departments: domain=[["parent_id","=",<dept_id>]]
+
+hr.job  →  job positions / headcount plan / vacancies
+  Fields: name, department_id, no_of_recruitment (open slots), no_of_hired_employee,
+          no_of_employee (current headcount), state, description
+  state: recruit (open/hiring) | open (filled)
+  ▶ Positions currently recruiting: domain=[["state","=","recruit"]]
+
+── RECRUITMENT ──
+hr.applicant  →  job applications / hiring pipeline
+  Fields: partner_name, email_from, partner_phone, job_id, department_id,
+          stage_id, user_id (recruiter), priority, date_open, date_closed,
+          kanban_state, source_id, salary_expected, salary_proposed
+  priority: 0=Normal | 1=Good | 2=Very Good | 3=Excellent
+  ▶ Active pipeline: domain=[["active","=",True]]
+  ▶ By stage: odoo_read_group groupby=["stage_id"] aggregates=[]
+  ▶ By job: odoo_read_group groupby=["job_id"] aggregates=[]
+  ▶ By source: odoo_read_group groupby=["source_id"] aggregates=[]
+
+── CONTRACTS ──
+hr.contract  →  employment contracts
+  Fields: name, employee_id, job_id, department_id, wage, contract_type_id,
+          date_start, date_end, state, structure_type_id, hr_responsible_id, notes
+  state: draft | open | close | cancel
+  ▶ Active contracts: domain=[["state","=","open"]]
+  ▶ Expiring in 30 days: domain=[["state","=","open"],["date_end","!=",False],["date_end","<","{today_date}"]]
+  ▶ Probation contracts: domain=[["state","=","open"],["contract_type_id.name","ilike","probation"]]
+  ▶ By dept: odoo_read_group groupby=["department_id"] aggregates=["wage:sum"]
+
+── ATTENDANCE ──
+hr.attendance  →  daily check-in / check-out records
+  Fields: employee_id, check_in, check_out, worked_hours
+  ▶ Today's records: domain=[["check_in",">=","{today_date} 00:00:00"]]
+  ▶ Missing check-out: domain=[["check_out","=",False]]
+  ▶ Monthly hours per employee: odoo_read_group groupby=["employee_id"] aggregates=["worked_hours:sum"]
+    + add date domain for the month range
+  NOTE: check_in / check_out stored in UTC — displayed in user timezone in Odoo UI
+
+── LEAVES / TIME OFF ──
+hr.leave  →  leave requests (individual time-off records)
+  Fields: employee_id, holiday_status_id (leave type), date_from, date_to,
+          number_of_days, state, department_id, name
+  state: draft | confirm | validate1 | validate | refuse
+  ▶ Approved leaves: domain=[["state","=","validate"]]
+  ▶ Pending approval: domain=[["state","in",["confirm","validate1"]]]
+  ▶ By leave type: odoo_read_group groupby=["holiday_status_id"] aggregates=["number_of_days:sum"]
+  ▶ By department: odoo_read_group groupby=["department_id"] aggregates=["number_of_days:sum"]
+
+hr.leave.allocation  →  leave balance allocations per employee
+  Fields: employee_id, holiday_status_id, number_of_days, state, date_from, date_to
+  state: draft | confirm | validate1 | validate | refuse
+  ▶ Approved allocations: domain=[["state","=","validate"]]
+  ▶ By employee: odoo_read_group groupby=["employee_id"] aggregates=["number_of_days:sum"]
+
+hr.leave.type  →  leave type / policy definitions
+  Fields: name, allocation_type, max_leaves, leaves_taken, remaining_leaves
+
+── PAYROLL ──
+hr.payslip  →  individual payslips
+  Fields: employee_id, date_from, date_to, state, struct_id, payslip_run_id, name
+  state: draft | verify | done | cancel
+  ▶ Paid payslips: domain=[["state","=","done"]]
+  ▶ Current month (paid): domain=[["date_from",">=","{today_date[:7]}-01"],["date_from","<","{today_date}"],["state","=","done"]]
+  ▶ By employee: odoo_read_group groupby=["employee_id"] aggregates=[]
+  ▶ By run: odoo_read_group groupby=["payslip_run_id"] aggregates=[]
+
+hr.payslip.run  →  payroll batches / pay runs
+  Fields: name, date_start, date_end, state
+  state: draft | verify | close
+  ▶ Closed / disbursed: domain=[["state","=","close"]]
+
+── APPRAISAL / PERFORMANCE MANAGEMENT ──
+hr.appraisal  →  standard Odoo appraisals
+  Fields: employee_id, manager_ids, date_close, state, rating
+  state: new | pending | done | cancel
+  rating: 0=Good | 1=Very Good | 2=Excellent
+  ▶ Completed: domain=[["state","=","done"]]
+  ▶ Pending: domain=[["state","in",["new","pending"]]]
+
+epa.appraisal  →  EPA appraisals (custom module)
+  Fields: employee_id, period_id, state, final_score, self_score, manager_score, batch_id
+  state: draft | in_progress | pending_manager | done | cancelled
+  ▶ Completed: domain=[["state","=","done"]]
+  ▶ By period: domain=[["period_id","=",<period_id>]]
+  ▶ Score summary: odoo_read_group groupby=["period_id"] aggregates=["final_score:avg"]
+
+hr.performance.kpi  →  KPI records (custom module)
+  Fields: name, employee_id, weight, target, achievement, state, period_id, kpi_group_id, requested_by
+  state: draft | pending | approved | rejected
+  ▶ Approved KPIs: domain=[["state","=","approved"]]
+  ▶ Pending approval: domain=[["state","in",["draft","pending"]]]
+  ▶ Avg achievement: odoo_read_group groupby=["employee_id"] aggregates=["achievement:avg"]
+  ▶ By group: odoo_read_group groupby=["kpi_group_id"] aggregates=["achievement:avg","weight:sum"]
+
+── SKILLS ──
+hr.employee.skill  →  employee skills / competency matrix
+  Fields: employee_id, skill_id, skill_level_id, skill_type_id, level_progress
+  ▶ By skill type: odoo_read_group groupby=["skill_type_id"] aggregates=[]
+  ▶ By employee: domain=[["employee_id","=",<emp_id>]]
+
+══ CUSTOM HR REPORTS SUMMARY ══
+| Report                  | Model                | Key Filter                   | Group By          |
+|-------------------------|----------------------|------------------------------|-------------------|
+| Headcount by Dept       | hr.employee          | active=True                  | department_id     |
+| Employee Directory      | hr.employee          | active=True                  | job_id            |
+| Open Vacancies          | hr.job               | state=recruit                | department_id     |
+| Recruitment Pipeline    | hr.applicant         | active=True                  | stage_id          |
+| Hire Source Analysis    | hr.applicant         | date_closed (month)          | source_id         |
+| Active Contracts        | hr.contract          | state=open                   | department_id     |
+| Expiring Contracts      | hr.contract          | state=open, date_end<+30d    | employee_id       |
+| Probation Due           | hr.contract          | type=probation, state=open   | date_end          |
+| Daily Attendance        | hr.attendance        | check_in >= today            | employee_id       |
+| Monthly Hours           | hr.attendance        | date range (worked_hours sum)| employee_id       |
+| Pending Leave Requests  | hr.leave             | state=confirm                | department_id     |
+| Leaves by Type          | hr.leave             | state=validate, month        | holiday_status_id |
+| Leave Allocations       | hr.leave.allocation  | state=validate               | employee_id       |
+| Payroll Batches         | hr.payslip.run       | state=close                  | date_start        |
+| Monthly Payslips        | hr.payslip           | state=done, month            | employee_id       |
+| Appraisal Status        | hr.appraisal         | —                            | state             |
+| EPA Scores by Period    | epa.appraisal        | state=done                   | period_id         |
+| KPI Achievement         | hr.performance.kpi   | state=approved               | employee_id       |
+| Employee Skills Matrix  | hr.employee.skill    | —                            | skill_type_id     |
 
 ══ ROUTING — which model to answer each question ══
 • projects / list of projects / مشاريع                       → project.project (NEVER project.rs.phase)
@@ -582,7 +725,18 @@ res.partner         → partners/vendors/clients (name,phone,email,is_company)
 • advance payments / مدفوعات مقدمة                          → construction.advance.payment
 • RE units / وحدات عقارية / شقق / عقارات                    → rs.dev.unit
 • purchases / مشتريات                                       → purchase.order
-• employees / موظفين                                        → hr.employee
+• employees / headcount / موظفين / عدد الموظفين            → hr.employee  (domain=[["active","=",True]] unless inactive asked)
+• departments / org structure / إدارات / هيكل تنظيمي       → hr.department
+• job positions / vacancies / وظائف / شواغر                → hr.job
+• recruitment / applicants / pipeline / توظيف / مرشحين     → hr.applicant
+• employment contracts / عقود العمل                         → hr.contract
+• attendance / check-in / حضور / انصراف / دوام             → hr.attendance
+• leaves / time-off / إجازات / غياب                        → hr.leave  (allocations → hr.leave.allocation)
+• payroll / salary / payslips / رواتب / مرتبات / كشف راتب  → hr.payslip + hr.payslip.run
+• appraisal / performance review / تقييم / تقييم الأداء    → hr.appraisal / epa.appraisal
+• KPI / مؤشرات الأداء / مؤشر                              → hr.performance.kpi
+• skills / competency / مهارات الموظفين                    → hr.employee.skill
+• offboarding / resigned / departed / مغادرة / مستقيل      → hr.employee domain=[["active","=",False]]
 
 CRITICAL RULES:
 - project.rs.phase and project.rs.unit are REAL ESTATE ONLY — NEVER for construction

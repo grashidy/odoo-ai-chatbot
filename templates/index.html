@@ -939,7 +939,7 @@ body.impl-mode header::after { background: linear-gradient(90deg, transparent 0%
   <div class="pkg-tab-bar">
     <button class="pkg-tab-btn" data-tab="construction">🏗️ Construction ERP</button>
     <button class="pkg-tab-btn" data-tab="realestate">🏢 Real Estate</button>
-    <button class="pkg-tab-btn" data-tab="hr">👥 HR &amp; Employees</button>
+    <button class="pkg-tab-btn" data-tab="hr">👥 HR</button>
     <button class="pkg-tab-btn" data-tab="procurement">🛒 Procurement</button>
     <button class="pkg-tab-btn" data-tab="inventory">📦 Inventory</button>
   </div>
@@ -1121,46 +1121,264 @@ body.impl-mode header::after { background: linear-gradient(90deg, transparent 0%
   </div>
 
   <!-- ══════════════════════════════════════════════
-       HR & EMPLOYEES tab
+       HR tab — 12 module cards covering the full HR lifecycle
   ══════════════════════════════════════════════ -->
   <div class="pkg-pane" id="pkg-hr">
     <div class="cat-grid">
 
-      <!-- Employees -->
+      <!-- 1. Employee Directory -->
       <div class="cat-card c-hr">
         <div class="cat-accent-bar"></div>
         <div class="cat-card-top">
           <div class="cat-icon-box">👤</div>
           <div>
-            <div class="cat-name">Employees</div>
-            <div class="cat-model">hr.employee · Staff Directory</div>
+            <div class="cat-name">Employee Directory</div>
+            <div class="cat-model">hr.employee · Staff Management</div>
           </div>
         </div>
         <div class="cat-qs">
-          <div class="suggestion" onclick="suggest(this)">List all employees with their job titles, departments and work phones</div>
-          <div class="suggestion ar" onclick="suggest(this)">اعرض قائمة الموظفين مع أرقام هواتفهم مرتبةً حسب الإدارة</div>
-          <div class="suggestion" onclick="suggest(this)">Show employee count grouped by department with a chart</div>
-          <div class="suggestion ar" onclick="suggest(this)">كم عدد الموظفين في كل إدارة؟ اعرض تفصيلاً بالأرقام</div>
-          <div class="suggestion" onclick="suggest(this)">Which employees are assigned to which department?</div>
-          <div class="suggestion ar" onclick="suggest(this)">اعرض الموظفين مع مسمياتهم الوظيفية مرتبةً حسب القسم</div>
+          <div class="suggestion" onclick="suggest(this)">List all active employees with their job titles, departments and work phones</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض قائمة الموظفين النشطين مع مسمياتهم الوظيفية وأقسامهم وأرقام هواتفهم</div>
+          <div class="suggestion" onclick="suggest(this)">Show employee count grouped by department with a bar chart</div>
+          <div class="suggestion ar" onclick="suggest(this)">كم عدد الموظفين في كل إدارة؟ اعرض تفصيلاً بالأرقام ورسماً بيانياً</div>
+          <div class="suggestion" onclick="suggest(this)">Which employees report to which manager? Show the reporting structure</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض الموظفين المعيّنين تحت إشراف كل مدير مع هيكل التقارير</div>
+          <div class="suggestion" onclick="suggest(this)">Show inactive / offboarded employees list</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض قائمة الموظفين الذين تركوا العمل أو تم إلغاء تنشيطهم</div>
         </div>
       </div>
 
-      <!-- Departments -->
+      <!-- 2. Organization Structure & Vacancies -->
       <div class="cat-card c-hr">
         <div class="cat-accent-bar"></div>
         <div class="cat-card-top">
           <div class="cat-icon-box">🏢</div>
           <div>
-            <div class="cat-name">Departments</div>
-            <div class="cat-model">hr.department · Org Structure</div>
+            <div class="cat-name">Organization &amp; Vacancies</div>
+            <div class="cat-model">hr.department · hr.job · Org Structure</div>
           </div>
         </div>
         <div class="cat-qs">
-          <div class="suggestion" onclick="suggest(this)">List all departments with their managers</div>
+          <div class="suggestion" onclick="suggest(this)">List all departments with their managers and headcount</div>
           <div class="suggestion ar" onclick="suggest(this)">اعرض الإدارات مع مديريها وعدد الموظفين في كل إدارة</div>
-          <div class="suggestion" onclick="suggest(this)">Which department has the most employees?</div>
-          <div class="suggestion ar" onclick="suggest(this)">ما هي هيكلة الأقسام الإدارية في المنظمة؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show all open job positions / vacancies with number of open slots per department</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي الوظائف الشاغرة حالياً مع عدد الأماكن المطلوبة في كل إدارة؟</div>
+          <div class="suggestion" onclick="suggest(this)">Which department has the most employees and which has the most vacancies?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي الإدارة الأكبر من حيث عدد الموظفين والإدارة ذات أكبر عدد شواغر؟</div>
+        </div>
+      </div>
+
+      <!-- 3. Recruitment -->
+      <div class="cat-card c-hr">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🎯</div>
+          <div>
+            <div class="cat-name">Recruitment</div>
+            <div class="cat-model">hr.applicant · Hiring Pipeline</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show all active job applications grouped by recruitment stage</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض طلبات التوظيف النشطة مصنفةً حسب مرحلة التوظيف</div>
+          <div class="suggestion" onclick="suggest(this)">How many applicants per job position? Show the recruitment pipeline count</div>
+          <div class="suggestion ar" onclick="suggest(this)">كم عدد المرشحين لكل وظيفة؟ اعرض حجم خط سير التوظيف</div>
+          <div class="suggestion" onclick="suggest(this)">List top-rated applicants with priority = Excellent or Very Good</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض المرشحين ذوي التقييم الأعلى (ممتاز أو جيد جداً) مع الوظيفة المتقدمين لها</div>
+          <div class="suggestion" onclick="suggest(this)">Show recruitment source analysis — where are applicants coming from?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي مصادر التوظيف الأكثر فاعلية؟ من أين يأتي المرشحون؟</div>
+        </div>
+      </div>
+
+      <!-- 4. Contracts & Probation -->
+      <div class="cat-card c-hr">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">📋</div>
+          <div>
+            <div class="cat-name">Contracts &amp; Probation</div>
+            <div class="cat-model">hr.contract · Employment Contracts</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">List all active employee contracts with start date and wage</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض عقود العمل النشطة مع تاريخ البداية والراتب الأساسي لكل موظف</div>
+          <div class="suggestion" onclick="suggest(this)">Which employee contracts are expiring in the next 30 days?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي عقود العمل التي ستنتهي خلال الـ 30 يوماً القادمة؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show all probation contracts with their end dates and employee names</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض عقود فترة التجربة النشطة مع مواعيد انتهائها وأسماء الموظفين</div>
+          <div class="suggestion" onclick="suggest(this)">How many employees are on probation vs permanent contracts?</div>
+          <div class="suggestion ar" onclick="suggest(this)">كم عدد الموظفين في فترة التجربة مقارنةً بالعقود الدائمة؟</div>
+        </div>
+      </div>
+
+      <!-- 5. Attendance -->
+      <div class="cat-card c-hr">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🕐</div>
+          <div>
+            <div class="cat-name">Attendance</div>
+            <div class="cat-model">hr.attendance · Check-In / Check-Out</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show today's attendance records — who checked in and when?</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض سجلات الحضور لليوم — من سجّل الدخول ومتى؟</div>
+          <div class="suggestion" onclick="suggest(this)">Which employees have not checked out yet today?</div>
+          <div class="suggestion ar" onclick="suggest(this)">من الموظفون الذين لم يسجلوا الانصراف حتى الآن؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show total hours worked per employee this month</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض إجمالي ساعات العمل لكل موظف خلال الشهر الحالي</div>
+          <div class="suggestion" onclick="suggest(this)">Which department has the highest average attendance hours this month?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي الإدارة ذات أعلى متوسط ساعات حضور هذا الشهر؟</div>
+        </div>
+      </div>
+
+      <!-- 6. Leaves & Time Off -->
+      <div class="cat-card c-hr">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🌴</div>
+          <div>
+            <div class="cat-name">Leaves &amp; Time Off</div>
+            <div class="cat-model">hr.leave · hr.leave.allocation · Time Off</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show all pending leave requests waiting for approval</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض طلبات الإجازة المعلقة التي تنتظر الموافقة</div>
+          <div class="suggestion" onclick="suggest(this)">How many leave days were taken per leave type this month?</div>
+          <div class="suggestion ar" onclick="suggest(this)">كم يوماً أُخذ من كل نوع إجازة خلال الشهر الحالي؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show approved leaves grouped by department for this year</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض الإجازات المعتمدة مصنفةً حسب الإدارة لهذا العام</div>
+          <div class="suggestion" onclick="suggest(this)">List all approved leave allocations per employee with remaining balance</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض رصيد الإجازات المعتمدة لكل موظف</div>
+        </div>
+      </div>
+
+      <!-- 7. Payroll -->
+      <div class="cat-card c-hr">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">💰</div>
+          <div>
+            <div class="cat-name">Payroll</div>
+            <div class="cat-model">hr.payslip · hr.payslip.run · Salaries</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show all closed payroll batches with their date ranges and status</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض دورات الرواتب المغلقة (المدفوعة) مع فتراتها الزمنية</div>
+          <div class="suggestion" onclick="suggest(this)">How many payslips were processed this month and what is their status breakdown?</div>
+          <div class="suggestion ar" onclick="suggest(this)">كم قسيمة راتب تم إصدارها هذا الشهر وما توزيعها حسب الحالة؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show all done payslips for this month grouped by employee</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض قسائم الرواتب المؤكدة لهذا الشهر مرتبةً حسب الموظف</div>
+          <div class="suggestion" onclick="suggest(this)">List employees whose payslips are still in draft or verify state this month</div>
+          <div class="suggestion ar" onclick="suggest(this)">من الموظفون الذين لم تُعتمد رواتبهم بعد لهذا الشهر؟</div>
+        </div>
+      </div>
+
+      <!-- 8. Appraisal & PMS -->
+      <div class="cat-card c-hr">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">⭐</div>
+          <div>
+            <div class="cat-name">Appraisal &amp; PMS</div>
+            <div class="cat-model">hr.appraisal · epa.appraisal · Performance</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show all appraisals grouped by state (new, pending, done, cancelled)</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض التقييمات مصنفةً حسب حالتها (جديد، معلق، مكتمل، ملغي)</div>
+          <div class="suggestion" onclick="suggest(this)">List completed EPA appraisals with employee names and final scores</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض تقييمات EPA المكتملة مع أسماء الموظفين ودرجاتهم النهائية</div>
+          <div class="suggestion" onclick="suggest(this)">Which employees have not yet completed their appraisal this cycle?</div>
+          <div class="suggestion ar" onclick="suggest(this)">من الموظفون الذين لم يُكملوا تقييمهم في هذه الدورة بعد؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show average appraisal score by department for the latest period</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض متوسط درجات التقييم لكل إدارة في آخر دورة تقييم</div>
+        </div>
+      </div>
+
+      <!-- 9. KPI & Performance -->
+      <div class="cat-card c-hr">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">📊</div>
+          <div>
+            <div class="cat-name">KPI &amp; Performance</div>
+            <div class="cat-model">hr.performance.kpi · KPI Targets</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show all approved KPIs grouped by employee with achievement percentage</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض مؤشرات الأداء المعتمدة مصنفةً حسب الموظف مع نسبة الإنجاز</div>
+          <div class="suggestion" onclick="suggest(this)">Which KPIs are still pending approval?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي مؤشرات الأداء التي لم تُعتمد بعد وتنتظر المراجعة؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show KPI achievement rate per employee — who exceeded their targets?</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض نسبة تحقيق مؤشرات الأداء — من حقق الهدف أو تجاوزه؟</div>
+          <div class="suggestion" onclick="suggest(this)">List KPIs by group with average weight and average achievement</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض مؤشرات الأداء مصنفةً حسب المجموعة مع متوسط الوزن والإنجاز</div>
+        </div>
+      </div>
+
+      <!-- 10. Skills & Training -->
+      <div class="cat-card c-hr">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🎓</div>
+          <div>
+            <div class="cat-name">Skills &amp; Training</div>
+            <div class="cat-model">hr.employee.skill · Competency Matrix</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show all employee skills grouped by skill type</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض مهارات الموظفين مصنفةً حسب نوع المهارة</div>
+          <div class="suggestion" onclick="suggest(this)">Which employees have skills in project management or engineering?</div>
+          <div class="suggestion ar" onclick="suggest(this)">من الموظفون الذين يمتلكون مهارات في إدارة المشاريع أو الهندسة؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show skill level distribution across all employees with a chart</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض توزيع مستويات المهارات عبر جميع الموظفين بشكل مرئي</div>
+        </div>
+      </div>
+
+      <!-- 11. Employee Lifecycle & Offboarding -->
+      <div class="cat-card c-hr">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🔄</div>
+          <div>
+            <div class="cat-name">Lifecycle &amp; Offboarding</div>
+            <div class="cat-model">hr.employee · Active / Inactive Records</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show total active headcount per company and per department</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هو إجمالي عدد الموظفين النشطين حالياً مقسماً حسب الشركة والإدارة؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show all inactive (departed) employees list</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض قائمة الموظفين السابقين الذين غادروا الشركة</div>
+          <div class="suggestion" onclick="suggest(this)">How many employees were added (created) vs deactivated this year?</div>
+          <div class="suggestion ar" onclick="suggest(this)">كم موظفاً تم تعيينه وكم موظفاً غادر الشركة هذا العام؟</div>
+        </div>
+      </div>
+
+      <!-- 12. HR Reports Dashboard -->
+      <div class="cat-card c-hr">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">📈</div>
+          <div>
+            <div class="cat-name">HR Dashboard &amp; Reports</div>
+            <div class="cat-model">All HR Models · Summary &amp; Analytics</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Give me an HR overview: headcount, open vacancies, pending leaves and payroll status</div>
+          <div class="suggestion ar" onclick="suggest(this)">أعطني ملخصاً شاملاً لـ HR: عدد الموظفين، الوظائف الشاغرة، الإجازات المعلقة، وحالة الرواتب</div>
+          <div class="suggestion" onclick="suggest(this)">Show a monthly HR summary comparing attendance hours, leaves taken and payslips processed</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض ملخصاً شهرياً لـ HR: ساعات الحضور، الإجازات المأخوذة، وعدد قسائم الرواتب المعالجة</div>
+          <div class="suggestion" onclick="suggest(this)">Which departments have the most pending approvals — leaves, appraisals, and KPIs combined?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي الإدارات التي لديها أكبر عدد من الطلبات المعلقة (إجازات وتقييمات ومؤشرات أداء)؟</div>
         </div>
       </div>
 
