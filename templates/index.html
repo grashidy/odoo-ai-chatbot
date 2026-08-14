@@ -1074,32 +1074,100 @@ body.impl-mode header::after { background: linear-gradient(90deg, transparent 0%
   </div>
 
   <!-- ══════════════════════════════════════════════
-       REAL ESTATE tab
+       REAL ESTATE tab — 7 classified cards
   ══════════════════════════════════════════════ -->
   <div class="pkg-pane" id="pkg-realestate">
     <div class="cat-grid">
 
-      <!-- Property Units -->
+      <!-- 1. Property Inventory -->
       <div class="cat-card c-re">
         <div class="cat-accent-bar"></div>
         <div class="cat-card-top">
           <div class="cat-icon-box">🏠</div>
           <div>
-            <div class="cat-name">Property Units</div>
-            <div class="cat-model">rs.dev.unit · Sales &amp; Availability</div>
+            <div class="cat-name">Property Inventory</div>
+            <div class="cat-model">rs.dev.unit · Full Unit Listing</div>
           </div>
         </div>
         <div class="cat-qs">
-          <div class="suggestion" onclick="suggest(this)">How many units are available in each project with their prices?</div>
-          <div class="suggestion ar" onclick="suggest(this)">ما هي الوحدات المتاحة للبيع مع مساحاتها وأسعارها؟</div>
-          <div class="suggestion" onclick="suggest(this)">Show contracted units with client names and sale prices</div>
-          <div class="suggestion ar" onclick="suggest(this)">اعرض الوحدات مصنفةً حسب الحالة مع عدد كل حالة</div>
-          <div class="suggestion" onclick="suggest(this)">What is the total sold value by unit type (apartment, villa, duplex)?</div>
-          <div class="suggestion ar" onclick="suggest(this)">اعرض الوحدات حسب نوع الاستخدام مع متوسط السعر</div>
+          <div class="suggestion" onclick="suggest(this)">List all property units with their code, project, building, type and area</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض جميع الوحدات العقارية مع الكود والمشروع والمبنى والنوع والمساحة</div>
+          <div class="suggestion" onclick="suggest(this)">How many units exist per real estate project? Show a breakdown with chart</div>
+          <div class="suggestion ar" onclick="suggest(this)">كم عدد الوحدات في كل مشروع عقاري؟ اعرض تفصيلاً بالأرقام</div>
+          <div class="suggestion" onclick="suggest(this)">Show all units grouped by unit type (apartment, villa, duplex, twin house, town house)</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض الوحدات مصنفةً حسب النوع (شقة، فيلا، دوبلكس، تاون هاوس)</div>
+          <div class="suggestion" onclick="suggest(this)">Show units grouped by usability type (residential, commercial, administrative, medical, parking)</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض الوحدات مصنفةً حسب الاستخدام (سكني، تجاري، إداري، طبي، مواقف)</div>
         </div>
       </div>
 
-      <!-- Buildings & Phases -->
+      <!-- 2. Sales Pipeline & Status -->
+      <div class="cat-card c-re">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">🔄</div>
+          <div>
+            <div class="cat-name">Sales Pipeline &amp; Status</div>
+            <div class="cat-model">rs.dev.unit · historical_process Funnel</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show unit count by sales status (holded, booked, reserved, contracted) with a pie chart</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض عدد الوحدات حسب حالة البيع (محجوز، مُقدَّم، محجوز نهائي، متعاقد) مع رسم بياني</div>
+          <div class="suggestion" onclick="suggest(this)">List all contracted units with their project and sold price</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض جميع الوحدات المتعاقد عليها مع المشروع وسعر البيع</div>
+          <div class="suggestion" onclick="suggest(this)">How many units are still available (not holded, booked, reserved or contracted)?</div>
+          <div class="suggestion ar" onclick="suggest(this)">كم عدد الوحدات المتاحة للبيع التي لم تُحجز أو تُتعاقد عليها بعد؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show the sales funnel: total units vs booked vs reserved vs contracted per project</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض قمع المبيعات: إجمالي الوحدات مقابل المحجوز والمحجوز نهائياً والمتعاقد لكل مشروع</div>
+        </div>
+      </div>
+
+      <!-- 3. Revenue & Pricing -->
+      <div class="cat-card c-re">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">💰</div>
+          <div>
+            <div class="cat-name">Revenue &amp; Pricing</div>
+            <div class="cat-model">rs.dev.unit · unit_price · sold_price</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">What is the total sold value (sold_price) for all contracted units per project?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي إجمالي قيمة المبيعات (سعر البيع) للوحدات المتعاقد عليها لكل مشروع؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show total listed price vs total sold price per project — what is the discount gap?</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض إجمالي السعر المدرج مقابل سعر البيع الفعلي — ما هو الفرق في كل مشروع؟</div>
+          <div class="suggestion" onclick="suggest(this)">What is the total amount paid so far across all units and projects?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هو إجمالي المبالغ المحصلة حتى الآن عبر جميع المشاريع؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show average unit price by unit type (apartment vs villa vs duplex)</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هو متوسط سعر الوحدة حسب النوع (شقة مقابل فيلا مقابل دوبلكس)؟</div>
+        </div>
+      </div>
+
+      <!-- 4. Area & Space Analysis -->
+      <div class="cat-card c-re">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">📐</div>
+          <div>
+            <div class="cat-name">Area &amp; Space Analysis</div>
+            <div class="cat-model">rs.dev.unit · net_area · price_after_discount</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show average net area per unit type across all projects</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هو متوسط المساحة الصافية لكل نوع وحدة عبر جميع المشاريع؟</div>
+          <div class="suggestion" onclick="suggest(this)">What is the total net area of contracted units per project?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي إجمالي المساحة الصافية للوحدات المتعاقد عليها في كل مشروع؟</div>
+          <div class="suggestion" onclick="suggest(this)">List the largest units (by net area) available for sale with their prices</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض أكبر الوحدات مساحةً المتاحة للبيع مع أسعارها</div>
+          <div class="suggestion" onclick="suggest(this)">Show price per square meter for contracted units grouped by project</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض سعر المتر المربع للوحدات المتعاقد عليها مصنفاً حسب المشروع</div>
+        </div>
+      </div>
+
+      <!-- 5. Buildings & Phases -->
       <div class="cat-card c-bld">
         <div class="cat-accent-bar"></div>
         <div class="cat-card-top">
@@ -1110,10 +1178,54 @@ body.impl-mode header::after { background: linear-gradient(90deg, transparent 0%
           </div>
         </div>
         <div class="cat-qs">
-          <div class="suggestion" onclick="suggest(this)">List all real estate buildings and their associated projects</div>
-          <div class="suggestion ar" onclick="suggest(this)">اعرض مراحل التطوير العقاري مع أسماء المشاريع</div>
+          <div class="suggestion" onclick="suggest(this)">List all real estate buildings with their associated projects</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض جميع المباني العقارية مع المشاريع المرتبطة بها</div>
           <div class="suggestion" onclick="suggest(this)">How many buildings are there per real estate project?</div>
-          <div class="suggestion ar" onclick="suggest(this)">ما هي مراحل التطوير وعدد الوحدات في كل مرحلة؟</div>
+          <div class="suggestion ar" onclick="suggest(this)">كم عدد المباني في كل مشروع عقاري؟</div>
+          <div class="suggestion" onclick="suggest(this)">List all development phases with their project names</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض مراحل التطوير العقاري مع أسماء المشاريع</div>
+          <div class="suggestion" onclick="suggest(this)">How many units are in each building and phase? Show the breakdown</div>
+          <div class="suggestion ar" onclick="suggest(this)">كم عدد الوحدات في كل مبنى ومرحلة؟ اعرض التفاصيل</div>
+        </div>
+      </div>
+
+      <!-- 6. Collections & Payments -->
+      <div class="cat-card c-re">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">💳</div>
+          <div>
+            <div class="cat-name">Collections &amp; Payments</div>
+            <div class="cat-model">rs.dev.unit · paid_amount · price_after_discount</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Show collected amount vs contracted value per project — what is the outstanding balance?</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض المبلغ المحصل مقابل قيمة العقد لكل مشروع — ما هو الرصيد المتبقي؟</div>
+          <div class="suggestion" onclick="suggest(this)">Which contracted units have paid less than 50% of their price?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي الوحدات المتعاقد عليها التي سدّدت أقل من 50% من سعرها؟</div>
+          <div class="suggestion" onclick="suggest(this)">Show total paid_amount vs price_after_discount for all units grouped by project</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض إجمالي المبالغ المدفوعة مقابل السعر بعد الخصم لكل مشروع</div>
+        </div>
+      </div>
+
+      <!-- 7. RE Reports Dashboard -->
+      <div class="cat-card c-re">
+        <div class="cat-accent-bar"></div>
+        <div class="cat-card-top">
+          <div class="cat-icon-box">📈</div>
+          <div>
+            <div class="cat-name">RE Reports &amp; Dashboard</div>
+            <div class="cat-model">rs.dev.unit · Summary Analytics</div>
+          </div>
+        </div>
+        <div class="cat-qs">
+          <div class="suggestion" onclick="suggest(this)">Give me a real estate overview: total units, contracted count, total sales value and total collected</div>
+          <div class="suggestion ar" onclick="suggest(this)">أعطني ملخصاً شاملاً للعقارات: إجمالي الوحدات، المتعاقد عليها، قيمة المبيعات، والمحصّل</div>
+          <div class="suggestion" onclick="suggest(this)">Show a comparison of all projects by unit count, contracted units and total sold value</div>
+          <div class="suggestion ar" onclick="suggest(this)">اعرض مقارنة بين المشاريع العقارية من حيث عدد الوحدات والمتعاقد عليها وإجمالي المبيعات</div>
+          <div class="suggestion" onclick="suggest(this)">What percentage of units are sold (contracted) vs available across all projects?</div>
+          <div class="suggestion ar" onclick="suggest(this)">ما هي نسبة الوحدات المباعة (المتعاقد عليها) مقابل المتاحة عبر جميع المشاريع؟</div>
         </div>
       </div>
 
