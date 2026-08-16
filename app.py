@@ -1329,15 +1329,19 @@ def chat():
                 _r = [None]; _e = [None]; _ev = threading.Event()
                 def _worker():
                     try:
-                        kw = dict(model=model, messages=msgs,
-                                  max_tokens=1800, temperature=0.1)
+                        # gpt-5/o-series rejects max_tokens and temperature — pre-configure
+                        _is_new = any(x in model.lower()
+                                      for x in ("gpt-5","terra","sol","luna","o1-","o3-","o4-"))
+                        if _is_new:
+                            kw = dict(model=model, messages=msgs, max_completion_tokens=1800)
+                        else:
+                            kw = dict(model=model, messages=msgs,
+                                      max_tokens=1800, temperature=0.1)
                         if tools:
                             kw["tools"]       = tools
                             kw["tool_choice"] = "auto"
-                        # Auto-fix unsupported params for newer OpenAI models (gpt-5/o-series):
-                        # Each attempt removes one rejected parameter until the call succeeds.
                         _last_exc = None
-                        for _attempt in range(5):
+                        for _attempt in range(6):
                             try:
                                 _r[0] = cl.chat.completions.create(**kw)
                                 break
@@ -1350,11 +1354,14 @@ def chat():
                                     kw.pop("temperature", None)
                                 elif "tool_choice" in _em:
                                     kw.pop("tool_choice", None)
-                                elif "tools" in _em:
-                                    # Model can't handle tools — don't strip them.
-                                    # Fail out so the outer loop falls back to next provider.
+                                elif "tools" in _em and "tool_choice" in kw:
+                                    # tools error but tool_choice still present — try without it
+                                    kw.pop("tool_choice", None)
+                                elif "tools" in _em and "tool_choice" not in kw:
+                                    # tools rejected with no tool_choice — provider can't do tools
                                     _e[0] = _exc; break
                                 else:
+                                    # non-parameter error (quota, auth, network) — pass to classify
                                     _e[0] = _exc; break
                         else:
                             _e[0] = _last_exc
@@ -1402,10 +1409,21 @@ def chat():
                         messages = list(base_msgs)  # clean slate for new provider
                         # do NOT break — continue while-loop to try next provider
                     else:
-                        # All providers exhausted — show friendly error
+                        # All providers failed with tools — try without tools as last resort
+                        if _tools and not _tool_chunks:
+                            logging.warning("[%s] All providers failed on tools — retrying without tools", _req_id)
+                            _prov_idx = 0
+                            messages = list(base_msgs)
+                            resp_nt, err_nt = yield from _ai_call(
+                                _providers[0]["client"], _providers[0]["model"], messages, None)
+                            if err_nt is None and resp_nt:
+                                text_nt = resp_nt.choices[0].message.content or ""
+                                yield f"data: {json.dumps({'type': 'text', 'text': text_nt})}\n\n"
+                                _answered = True
+                                break
                         _err_text = ("⚠️ عذراً، حدث خطأ مؤقت في خدمة الذكاء الاصطناعي. "
-                                     "يرجى المحاولة مرة أخرى.\n\n"
-                                     "Sorry, a temporary AI error occurred. Please try again.")
+                                     "يرجى المحاولة مرة أخرى بعد دقيقة.\n\n"
+                                     "Sorry, a temporary AI error. Please try again in a minute.")
                         yield f"data: {json.dumps({'type': 'text', 'text': _err_text})}\n\n"
                         _answered = True
                         break
