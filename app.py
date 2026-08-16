@@ -719,6 +719,12 @@ hr.appraisal  →  ALL appraisal records (standard + EPA custom module — same 
   ▶ By period:                 domain=[["evaluation_period_id","=",<period_id>]]
   ▶ By batch:                  domain=[["batch_id","=",<batch_id>]]
 
+  ⚠ EMPTY RESULT RULE: If a state-filtered query returns 0 records, you MUST immediately
+    also call odoo_read_group on hr.appraisal groupby=["state"] aggregates=[] (no domain)
+    to show how many appraisals exist in each stage. Present the by-state breakdown in
+    your answer so the user understands what stage their appraisals are currently at.
+    Example: "No completed appraisals found. Current status: 3 in manager_evaluation, 2 in self_evaluation, 1 in hr_evaluation."
+
 hr.appraisal.review  →  Multi-evaluator review entries linked to an appraisal
   Each appraisal can have multiple reviewers; this stores each reviewer's submission.
   Fields: appraisal_id, evaluator_id, evaluator_type, status, score, overall_comment, submitted_date
