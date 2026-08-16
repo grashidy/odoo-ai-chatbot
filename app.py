@@ -597,7 +597,7 @@ RULES:
 - NEVER call the same model more than once per turn — pick the right fields the first time.
 - Totals/counts → odoo_read_group. Lists → odoo_search (limit 50, increase to 200 for "all records").
 - Format numbers with commas. Currency = EGP. Use markdown tables.
-- On ANY field error (field not found / invalid field) → IMMEDIATELY call odoo_get_fields on that model, pick the correct fields from the result, then retry the search. NEVER report "field not available" — always retry with correct fields.
+- On ANY field error (field not found / invalid field) → IMMEDIATELY call odoo_get_fields on that model in the SAME response, then WITHOUT pausing, call the original search again using the correct field names from the result. NEVER say "the records still need to be re-queried" or "needs to be re-queried" — just DO the re-query immediately in the same turn. You MUST emit both tool calls in one response.
 - If a tool returns an error, report the error — do NOT invent data to compensate.
 
 CHARTS: CHART_BAR:{{"title":"T","labels":["A","B"],"data":[10,20]}}  CHART_PIE:{{"title":"T","labels":["A"],"data":[1]}}
@@ -1480,22 +1480,26 @@ def chat():
                             "Do not answer from memory."})
                         continue
 
-                    # Guard: "planning" response — model said "I will show…" without calling tools
-                    # Reasoning models (gpt-5/o-series) sometimes narrate before acting.
+                    # Guard: "planning" response — model narrates instead of calling tools
                     _planning_phrases = (
                         "سأعرض","سأقوم","سأبحث","سأجلب","سأستخدم","سأحصل","سأتحقق",
                         "i will","i'll","let me","allow me","i'll retrieve","i'll search",
+                        # field-error re-query stall: model says it needs to retry but doesn't
+                        "still need to be re-queried","need to be re-queried",
+                        "needs to be re-queried","still needs to","need to re-query",
+                        "still need to","need to query again","لا يزال يحتاج","يحتاج إلى إعادة",
+                        "couldn't retrieve","could not retrieve","i couldn't",
                     )
                     _is_planning = (
-                        not _tool_chunks and _round < 2 and len(text) < 400 and
+                        _round < 3 and len(text) < 600 and
                         any(ph in text.lower() for ph in _planning_phrases)
                     )
                     if _is_planning:
-                        logging.warning("[%s] Planning response round=%d — forcing tool call", _req_id, _round)
+                        logging.warning("[%s] Planning/stall response round=%d — forcing tool call", _req_id, _round)
                         messages.append({"role": "assistant", "content": text})
                         messages.append({"role": "user", "content":
-                            "Do not describe what you will do. "
-                            "Call the Odoo tool NOW to retrieve the actual data."})
+                            "Stop describing — call the Odoo search tool NOW with the correct fields "
+                            "to retrieve the actual data. Do not explain, just call the tool."})
                         continue
 
                     # Guard: model claims it has no Odoo tools available
