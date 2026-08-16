@@ -1414,6 +1414,24 @@ def chat():
                             "Do not answer from memory."})
                         continue
 
+                    # Guard: "planning" response — model said "I will show…" without calling tools
+                    # Reasoning models (gpt-5/o-series) sometimes narrate before acting.
+                    _planning_phrases = (
+                        "سأعرض","سأقوم","سأبحث","سأجلب","سأستخدم","سأحصل","سأتحقق",
+                        "i will","i'll","let me","allow me","i'll retrieve","i'll search",
+                    )
+                    _is_planning = (
+                        not _tool_chunks and _round < 2 and len(text) < 400 and
+                        any(ph in text.lower() for ph in _planning_phrases)
+                    )
+                    if _is_planning:
+                        logging.warning("[%s] Planning response round=%d — forcing tool call", _req_id, _round)
+                        messages.append({"role": "assistant", "content": text})
+                        messages.append({"role": "user", "content":
+                            "Do not describe what you will do. "
+                            "Call the Odoo tool NOW to retrieve the actual data."})
+                        continue
+
                     if not text:
                         text = _prov_mgr.user_message("unknown_error")
                     yield f"data: {json.dumps({'type': 'text', 'text': text})}\n\n"
