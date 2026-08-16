@@ -1352,16 +1352,21 @@ def chat():
                                     kw["max_completion_tokens"] = 1800
                                 elif "temperature" in _em:
                                     kw.pop("temperature", None)
+                                elif "reasoning_effort" in _em:
+                                    # gpt-5.6-terra / reasoning models need reasoning_effort='none'
+                                    # to use function tools via /v1/chat/completions
+                                    kw["reasoning_effort"] = "none"
+                                elif "tool_use_failed" in _em or "failed_generation" in _em:
+                                    # Model generated tool call in wrong format — drop tool_choice
+                                    # so it can answer freely without being forced to use a tool
+                                    kw.pop("tool_choice", None)
                                 elif "tool_choice" in _em:
                                     kw.pop("tool_choice", None)
                                 elif "tools" in _em and "tool_choice" in kw:
-                                    # tools error but tool_choice still present — try without it
                                     kw.pop("tool_choice", None)
                                 elif "tools" in _em and "tool_choice" not in kw:
-                                    # tools rejected with no tool_choice — provider can't do tools
                                     _e[0] = _exc; break
                                 else:
-                                    # non-parameter error (quota, auth, network) — pass to classify
                                     _e[0] = _exc; break
                         else:
                             _e[0] = _last_exc
