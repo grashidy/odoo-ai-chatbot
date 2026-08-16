@@ -1367,14 +1367,27 @@ def chat():
 
                 # No tool calls → final text answer
                 if finish in ("stop", "end_turn") or not msg.tool_calls:
-                    text = msg.content or "I was unable to generate a response. Please try again."
-                    # Guard: if model leaked raw function-call syntax, suppress it
-                    if "<function=" in text or "odoo_search" in text[:50]:
-                        logging.warning("Model leaked raw tool call in content, retrying synthesis")
-                        # Inject stronger instruction and continue to next iteration
+                    text = msg.content or ""
+
+                    # Guard 1: actual XML function-call syntax leaked into content
+                    if "<function=" in text:
+                        logging.warning("iter %d: model leaked <function=> XML syntax, retrying", iteration)
                         messages.append({"role": "user", "content": "IMPORTANT: Do NOT output function call syntax. Write only the final human-readable answer in the user's language."})
-                        answered = False
                         continue
+
+                    # Guard 2: model returned text (no tool calls) on a data question
+                    # when tools were available — re-prompt ONCE to force tool use.
+                    # (Gemini sometimes narrates "سأستخدم odoo_search…" instead of calling)
+                    no_tool_results_yet = not any(m.get("role") == "tool" for m in messages)
+                    if no_tool_results_yet and iteration == 0 and not text.strip():
+                        # Empty response on first try — force a tool call
+                        logging.warning("iter 0: empty response, forcing tool call")
+                        messages.append({"role": "user", "content": "Call the appropriate Odoo tool now to retrieve the data. Do not answer from memory."})
+                        continue
+
+                    # Yield whatever the model returned (refusal, answer, or plan text)
+                    if not text:
+                        text = "I was unable to generate a response. Please try again."
                     yield f"data: {json.dumps({'type': 'text', 'text': text})}\n\n"
                     answered = True
                     break
