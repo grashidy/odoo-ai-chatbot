@@ -1190,16 +1190,50 @@ def chat():
                 _api_err = [None]
                 _done    = threading.Event()
 
-                # When tool results are in history, omit tools entirely so the model
-                # is forced to produce a text answer (tool_choice="none" is unreliable
-                # on Gemini via the OpenAI-compatible endpoint).
+                # Synthesis mode: when tool results exist in history, strip the entire
+                # tool-call conversation (role:assistant+tool_calls and role:tool messages)
+                # before sending to Gemini.
+                #
+                # ROOT CAUSE: Gemini's OpenAI-compatible endpoint infers tool schemas from
+                # role:assistant(tool_calls) + role:tool history, and continues calling tools
+                # even when tools= is omitted from the request. Simply dropping tools= is NOT
+                # enough — Gemini reconstructs the schema from the conversation history and
+                # keeps looping. The only reliable fix is to send a CLEAN message history
+                # with the tool results injected as plain user text.
                 _has_tool_results = any(m.get("role") == "tool" for m in messages)
                 def _groq_call():
                     try:
                         if _has_tool_results:
+                            # Rebuild messages without any tool-call history.
+                            # Collect tool result chunks; skip assistant(tool_calls) messages
+                            # and the old "The Odoo data above" injected marker.
+                            _clean = []
+                            _chunks = []
+                            for _m in messages:
+                                _r = _m.get("role")
+                                _c = _m.get("content") or ""
+                                if _r == "tool":
+                                    _chunks.append(_c)
+                                elif _r == "assistant" and _m.get("tool_calls"):
+                                    pass  # omit — carries implicit tool schema
+                                elif _r == "user" and _c.startswith("The Odoo data above"):
+                                    pass  # omit — old injected marker (superseded below)
+                                else:
+                                    _clean.append(_m)
+                            if _chunks:
+                                _clean.append({
+                                    "role": "user",
+                                    "content": (
+                                        "Odoo data retrieved:\n\n" +
+                                        "\n\n---\n\n".join(_chunks) +
+                                        "\n\nAnswer the original question above. "
+                                        "Use markdown tables. Reply in the same language as the question. "
+                                        "Do NOT output any function call syntax."
+                                    )
+                                })
                             call_kw = dict(
                                 model=_ai_model,
-                                messages=messages,
+                                messages=_clean,
                                 max_tokens=1800,
                                 temperature=0.1,
                             )
@@ -1425,10 +1459,35 @@ def chat():
                 if loop_detected:
                     _fr = [None, None]; _fe = threading.Event()
                     def _final_call():
+                        # Same clean-history approach as synthesis mode:
+                        # strip tool-call history so Gemini can't infer tool schemas.
+                        _fc_clean = []
+                        _fc_chunks = []
+                        for _m in messages:
+                            _r = _m.get("role")
+                            _c = _m.get("content") or ""
+                            if _r == "tool":
+                                _fc_chunks.append(_c)
+                            elif _r == "assistant" and _m.get("tool_calls"):
+                                pass
+                            elif _r == "user" and _c.startswith("The Odoo data above"):
+                                pass
+                            else:
+                                _fc_clean.append(_m)
+                        if _fc_chunks:
+                            _fc_clean.append({
+                                "role": "user",
+                                "content": (
+                                    "Odoo data retrieved:\n\n" +
+                                    "\n\n---\n\n".join(_fc_chunks) +
+                                    "\n\nAnswer the original question above. "
+                                    "Use markdown tables. Reply in the same language as the question."
+                                )
+                            })
                         try:
                             _fr[0] = client.chat.completions.create(
                                 model=_ai_model,
-                                messages=messages,
+                                messages=_fc_clean,
                                 max_tokens=1800,
                                 temperature=0.1,
                             )
