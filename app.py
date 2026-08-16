@@ -67,7 +67,7 @@ class AIProviderManager:
         key = os.environ.get("GEMINI_API_KEY", "").strip()
         if not key:
             return None
-        model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+        model = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
         return {"name": "Gemini", "model": model,
                 "client": OpenAI(api_key=key, base_url=GEMINI_BASE_URL)}
 
@@ -1306,7 +1306,17 @@ def chat():
                         if tools:
                             kw["tools"]       = tools
                             kw["tool_choice"] = "auto"
-                        _r[0] = cl.chat.completions.create(**kw)
+                        try:
+                            _r[0] = cl.chat.completions.create(**kw)
+                        except Exception as _first:
+                            _em = str(_first)
+                            # Newer OpenAI models (o1/o3/gpt-5) use max_completion_tokens
+                            if "max_tokens" in _em and "max_completion_tokens" in _em:
+                                kw.pop("max_tokens", None)
+                                kw["max_completion_tokens"] = 1800
+                                _r[0] = cl.chat.completions.create(**kw)
+                            else:
+                                raise
                     except Exception as exc:
                         _e[0] = exc
                     finally:
