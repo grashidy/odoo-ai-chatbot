@@ -1306,17 +1306,24 @@ def chat():
                         if tools:
                             kw["tools"]       = tools
                             kw["tool_choice"] = "auto"
-                        try:
-                            _r[0] = cl.chat.completions.create(**kw)
-                        except Exception as _first:
-                            _em = str(_first)
-                            # Newer OpenAI models (o1/o3/gpt-5) use max_completion_tokens
-                            if "max_tokens" in _em and "max_completion_tokens" in _em:
-                                kw.pop("max_tokens", None)
-                                kw["max_completion_tokens"] = 1800
+                        # Auto-fix unsupported params (gpt-5 series quirks):
+                        # 1st 400 → max_completion_tokens; 2nd → drop temperature
+                        _last_exc = None
+                        for _ in range(3):
+                            try:
                                 _r[0] = cl.chat.completions.create(**kw)
-                            else:
-                                raise
+                                break
+                            except Exception as _exc:
+                                _em = str(_exc); _last_exc = _exc
+                                if "max_tokens" in _em and "max_completion_tokens" in _em:
+                                    kw.pop("max_tokens", None)
+                                    kw["max_completion_tokens"] = 1800
+                                elif "temperature" in _em:
+                                    kw.pop("temperature", None)
+                                else:
+                                    _e[0] = _exc; break
+                        else:
+                            _e[0] = _last_exc
                     except Exception as exc:
                         _e[0] = exc
                     finally:
@@ -1591,15 +1598,21 @@ def health_check():
                 max_tokens=5,
                 temperature=0,
             )
-            try:
-                p["client"].chat.completions.create(**_probe_kw)
-            except Exception as _fe:
-                if "max_tokens" in str(_fe) and "max_completion_tokens" in str(_fe):
-                    _probe_kw.pop("max_tokens")
-                    _probe_kw["max_completion_tokens"] = 5
-                    p["client"].chat.completions.create(**_probe_kw)
-                else:
-                    raise
+            _plast = None
+            for _ in range(3):
+                try:
+                    p["client"].chat.completions.create(**_probe_kw); break
+                except Exception as _fe:
+                    _pem = str(_fe); _plast = _fe
+                    if "max_tokens" in _pem and "max_completion_tokens" in _pem:
+                        _probe_kw.pop("max_tokens", None)
+                        _probe_kw["max_completion_tokens"] = 5
+                    elif "temperature" in _pem:
+                        _probe_kw.pop("temperature", None)
+                    else:
+                        raise
+            else:
+                raise _plast
             ms = int((datetime.datetime.utcnow() - t0).total_seconds() * 1000)
             return {"provider": name, "model": model, "status": "ok", "latency_ms": ms}
         except Exception as exc:
