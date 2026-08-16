@@ -79,8 +79,7 @@ class AIProviderManager:
                or (_kf.read_text(encoding="utf-8").strip() if _kf.exists() else ""))
         if not key:
             return None
-        # llama-3.3-70b-versatile: better tool calling, separate quota pool from 8b-instant
-        model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+        model = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
         return {"name": "Groq", "model": model,
                 "client": OpenAI(api_key=key, base_url=GROQ_BASE_URL)}
 
@@ -1399,12 +1398,15 @@ def chat():
                     if can_fallback and _prov_idx + 1 < len(_providers):
                         _prov_idx += 1
                         _np = _providers[_prov_idx]
-                        _sw_msg = f"{_p['name']} error — trying {_np['name']} ({_np['model']})…"
-                        yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': _sw_msg}})}\n\n"
+                        logging.warning("[%s] switching to %s (%s)", _req_id, _np["name"], _np["model"])
                         messages = list(base_msgs)  # clean slate for new provider
                         # do NOT break — continue while-loop to try next provider
                     else:
-                        yield f"data: {json.dumps({'type': 'text', 'text': _prov_mgr.user_message(cat)})}\n\n"
+                        # All providers exhausted — show friendly error
+                        _err_text = ("⚠️ عذراً، حدث خطأ مؤقت في خدمة الذكاء الاصطناعي. "
+                                     "يرجى المحاولة مرة أخرى.\n\n"
+                                     "Sorry, a temporary AI error occurred. Please try again.")
+                        yield f"data: {json.dumps({'type': 'text', 'text': _err_text})}\n\n"
                         _answered = True
                         break
                 else:
