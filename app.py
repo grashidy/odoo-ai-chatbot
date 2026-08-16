@@ -19,8 +19,9 @@ socket.setdefaulttimeout(55)
 # ── AI Provider Manager ────────────────────────────────────────────────────────
 # Models are fully configurable via Railway environment variables.
 # Never hard-code model names — set GEMINI_MODEL / GROQ_MODEL in Railway Variables.
-GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-GROQ_BASE_URL   = "https://api.groq.com/openai/v1"
+GEMINI_BASE_URL    = "https://generativelanguage.googleapis.com/v1beta/openai/"
+GROQ_BASE_URL      = "https://api.groq.com/openai/v1"
+CEREBRAS_BASE_URL  = "https://api.cerebras.ai/v1"
 
 class AIProviderManager:
     """
@@ -39,7 +40,7 @@ class AIProviderManager:
         "auth_error":        "⚠️ Invalid API key. Go to Railway → Variables and check OPENAI_API_KEY / GEMINI_API_KEY / GROQ_API_KEY are correct and not revoked.",
         "model_unavailable": "⚠️ The requested AI model is unavailable. Trying backup provider…",
         "rate_limit":        "⚠️ AI rate limit reached. Please wait a moment and try again.",
-        "daily_quota":       "⚠️ All AI providers are unavailable (quota exhausted or invalid keys). Fix: go to Railway → Variables and update GEMINI_API_KEY with a fresh key from aistudio.google.com (free). Then check OPENAI_API_KEY is correct.",
+        "daily_quota":       "⚠️ All AI providers are unavailable (quota or credit exhausted). Fix: get a FREE Cerebras key from cloud.cerebras.ai → add CEREBRAS_API_KEY to Railway Variables. Also update GEMINI_API_KEY from aistudio.google.com.",
         "server_error":      "⚠️ AI service temporarily unavailable. Please try again shortly.",
         "timeout":           "⚠️ AI request timed out. Please try again.",
         "bad_request":       "⚠️ The AI received an invalid request. Please rephrase your question.",
@@ -48,9 +49,10 @@ class AIProviderManager:
     }
 
     def __init__(self):
-        self.openai   = self._build_openai()   # primary
-        self.primary  = self._build_gemini()   # secondary
-        self.fallback = self._build_groq()     # tertiary
+        self.openai    = self._build_openai()    # primary
+        self.primary   = self._build_gemini()    # secondary
+        self.fallback  = self._build_groq()      # tertiary
+        self.cerebras  = self._build_cerebras()  # quaternary (free, generous)
         self._log_startup()
 
     # ── Provider builders ────────────────────────────────────────────────────
@@ -81,17 +83,28 @@ class AIProviderManager:
         return {"name": "Groq", "model": model,
                 "client": OpenAI(api_key=key, base_url=GROQ_BASE_URL)}
 
+    def _build_cerebras(self):
+        key = os.environ.get("CEREBRAS_API_KEY", "").strip()
+        if not key:
+            return None
+        model = os.environ.get("CEREBRAS_MODEL", "llama-3.3-70b")
+        return {"name": "Cerebras", "model": model,
+                "client": OpenAI(api_key=key, base_url=CEREBRAS_BASE_URL)}
+
     # ── Error classification ─────────────────────────────────────────────────
 
     def classify_error(self, exc):
         """Returns (category: str, should_fallback: bool)."""
         msg = str(exc)
+        _ml = msg.lower()
         if "401" in msg or "403" in msg:
             return "auth_error", True
         if "404" in msg:
             return "model_unavailable", True
-        if "429" in msg or "rate_limit" in msg.lower():
-            _ml = msg.lower()
+        # Credit / billing exhaustion — treat same as daily_quota so we fall back
+        if "insufficient_funds" in _ml or "credit" in _ml and "balance" in _ml:
+            return "daily_quota", True
+        if "429" in msg or "rate_limit" in _ml:
             _is_daily = ("per day" in _ml or "daily" in _ml or "tpd" in _ml or
                          ("exceeded" in _ml and ("quota" in _ml or "billing" in _ml)))
             if _is_daily:
@@ -99,7 +112,7 @@ class AIProviderManager:
             return "rate_limit", True
         if any(f"{c}" in msg for c in (500, 502, 503, 504)):
             return "server_error", True
-        if "timeout" in msg.lower() or "timed out" in msg.lower():
+        if "timeout" in _ml or "timed out" in _ml:
             return "timeout", True
         if "400" in msg:
             return "bad_request", True        # try next provider — tools schema may differ
@@ -111,15 +124,16 @@ class AIProviderManager:
     # ── Provider iteration ───────────────────────────────────────────────────
 
     def providers(self, override_key=None):
-        """Return providers in priority order: OpenAI → Gemini → Groq."""
+        """Return providers in priority order: OpenAI → Gemini → Groq → Cerebras."""
         plist = []
         if override_key:
             plist.append({"name": "Custom", "model": "llama-3.1-8b-instant",
                           "client": OpenAI(api_key=override_key, base_url=GROQ_BASE_URL)})
         else:
-            if self.openai:   plist.append(self.openai)
-            if self.primary:  plist.append(self.primary)
-            if self.fallback: plist.append(self.fallback)
+            if self.openai:    plist.append(self.openai)
+            if self.primary:   plist.append(self.primary)
+            if self.fallback:  plist.append(self.fallback)
+            if self.cerebras:  plist.append(self.cerebras)
         return plist
 
     def best_client(self, override_key=None):
@@ -132,14 +146,15 @@ class AIProviderManager:
 
     def _log_startup(self):
         logging.warning("══ AI PROVIDER STATUS ══════════════════════════════")
-        for label, p in [("PRIMARY   (OpenAI)", self.openai),
-                          ("SECONDARY (Gemini)", self.primary),
-                          ("FALLBACK  (Groq)  ", self.fallback)]:
+        for label, p in [("PRIMARY    (OpenAI)  ", self.openai),
+                          ("SECONDARY  (Gemini)  ", self.primary),
+                          ("TERTIARY   (Groq)    ", self.fallback),
+                          ("QUATERNARY (Cerebras)", self.cerebras)]:
             if p:
                 logging.warning("  %s  model=%-30s  key=✓", label, p["model"])
             else:
                 logging.warning("  %s  NOT CONFIGURED", label)
-        if not self.openai and not self.primary and not self.fallback:
+        if not any([self.openai, self.primary, self.fallback, self.cerebras]):
             logging.warning("  ⚠ CRITICAL: no AI providers configured")
         logging.warning("════════════════════════════════════════════════════")
 
@@ -1675,7 +1690,7 @@ def health_check():
                         "providers": []}), 503
 
     results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
         futures = {ex.submit(_probe, p): p for p in providers}
         for fut in concurrent.futures.as_completed(futures):
             results.append(fut.result())
@@ -1687,9 +1702,10 @@ def health_check():
     return jsonify({
         "status":      overall,
         "providers":   results,
-        "openai_ok":   any(r["status"] == "ok" and r["provider"] == "OpenAI"  for r in results),
-        "gemini_ok":   any(r["status"] == "ok" and r["provider"] == "Gemini"  for r in results),
-        "groq_ok":     any(r["status"] == "ok" and r["provider"] == "Groq"    for r in results),
+        "openai_ok":    any(r["status"] == "ok" and r["provider"] == "OpenAI"   for r in results),
+        "gemini_ok":    any(r["status"] == "ok" and r["provider"] == "Gemini"   for r in results),
+        "groq_ok":      any(r["status"] == "ok" and r["provider"] == "Groq"     for r in results),
+        "cerebras_ok":  any(r["status"] == "ok" and r["provider"] == "Cerebras" for r in results),
         "working_providers": [r["provider"] for r in results if r["status"] == "ok"],
     }), http_code
 
