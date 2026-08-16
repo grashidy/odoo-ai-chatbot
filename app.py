@@ -31,7 +31,7 @@ DEFAULT_GROQ_KEY = (
 def _make_chat_client(override_key=None):
     """Gemini first (1M tokens/day free), Groq as fallback (500K/day free)."""
     if GEMINI_API_KEY:
-        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), "gemini-2.0-flash"
+        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), "gemini-2.5-flash"
     if DEFAULT_GROQ_KEY:
         return OpenAI(api_key=DEFAULT_GROQ_KEY, base_url="https://api.groq.com/openai/v1"), "llama-3.3-70b-versatile"
     if override_key:
@@ -47,7 +47,7 @@ def _make_groq_client():
 def _make_gemini_client():
     """Always returns a Gemini client."""
     if GEMINI_API_KEY:
-        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), "gemini-2.0-flash"
+        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), "gemini-2.5-flash"
     return None, None
 
 # ── Odoo connection ────────────────────────────────────────────────────────────
