@@ -67,7 +67,7 @@ class AIProviderManager:
         key = os.environ.get("GEMINI_API_KEY", "").strip()
         if not key:
             return None
-        model = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
+        model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash-lite")
         return {"name": "Gemini", "model": model,
                 "client": OpenAI(api_key=key, base_url=GEMINI_BASE_URL)}
 
@@ -1585,12 +1585,21 @@ def health_check():
         model = p["model"]
         t0    = datetime.datetime.utcnow()
         try:
-            p["client"].chat.completions.create(
+            _probe_kw = dict(
                 model=model,
                 messages=[{"role": "user", "content": "Reply with the single word OK."}],
                 max_tokens=5,
                 temperature=0,
             )
+            try:
+                p["client"].chat.completions.create(**_probe_kw)
+            except Exception as _fe:
+                if "max_tokens" in str(_fe) and "max_completion_tokens" in str(_fe):
+                    _probe_kw.pop("max_tokens")
+                    _probe_kw["max_completion_tokens"] = 5
+                    p["client"].chat.completions.create(**_probe_kw)
+                else:
+                    raise
             ms = int((datetime.datetime.utcnow() - t0).total_seconds() * 1000)
             return {"provider": name, "model": model, "status": "ok", "latency_ms": ms}
         except Exception as exc:
