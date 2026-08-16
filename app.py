@@ -1325,9 +1325,10 @@ def chat():
                                     kw.pop("temperature", None)
                                 elif "tool_choice" in _em:
                                     kw.pop("tool_choice", None)
-                                elif "tools" in _em and ("not support" in _em or "invalid" in _em or "unknown" in _em):
-                                    kw.pop("tools", None)
-                                    kw.pop("tool_choice", None)
+                                elif "tools" in _em:
+                                    # Model can't handle tools — don't strip them.
+                                    # Fail out so the outer loop falls back to next provider.
+                                    _e[0] = _exc; break
                                 else:
                                     _e[0] = _exc; break
                         else:
@@ -1430,6 +1431,27 @@ def chat():
                         messages.append({"role": "user", "content":
                             "Do not describe what you will do. "
                             "Call the Odoo tool NOW to retrieve the actual data."})
+                        continue
+
+                    # Guard: model claims it has no Odoo tools available
+                    _no_tools_phrases = (
+                        "لا تتوفر لي أداة","لا يمكنني الوصول","لا أملك أداة","لا أستطيع الوصول",
+                        "لا أملك القدرة","لا أملك صلاحية","لا تتوفر لدي",
+                        "no tool available","don't have access","cannot access odoo",
+                        "no access to odoo","not have the ability","no odoo tool",
+                        "i don't have any tools","i have no tools",
+                    )
+                    _claims_no_tools = (
+                        not _tool_chunks and _round < 3 and _tools and
+                        any(ph in text.lower() for ph in _no_tools_phrases)
+                    )
+                    if _claims_no_tools:
+                        logging.warning("[%s] Model claimed no tools round=%d — reminding it", _req_id, _round)
+                        messages.append({"role": "assistant", "content": text})
+                        messages.append({"role": "user", "content":
+                            "You DO have Odoo tools available in this session. "
+                            "Use one of: odoo_search, odoo_count, odoo_read_group, odoo_get_fields. "
+                            "Call the appropriate tool NOW to retrieve the actual data."})
                         continue
 
                     if not text:
