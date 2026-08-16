@@ -124,15 +124,24 @@ class AIProviderManager:
 
     # ── Provider iteration ───────────────────────────────────────────────────
 
-    def providers(self, override_key=None):
-        """Return providers in priority order: OpenAI → Gemini → Groq → Cerebras."""
+    def providers(self, override_key=None, for_tools=False):
+        """Return providers in priority order.
+
+        for_tools=True  → Groq first (fast, reliable tool calling), OpenAI second
+        for_tools=False → OpenAI first (best synthesis quality), Groq second
+        """
         plist = []
         if override_key:
-            plist.append({"name": "Custom", "model": "llama-3.1-8b-instant",
+            plist.append({"name": "Custom", "model": "llama-3.3-70b-versatile",
                           "client": OpenAI(api_key=override_key, base_url=GROQ_BASE_URL)})
+        elif for_tools:
+            # Tool-calling order: fast providers first — skip OpenAI which rejects tools
+            if self.fallback:  plist.append(self.fallback)   # Groq
+            if self.cerebras:  plist.append(self.cerebras)   # Cerebras
+            if self.openai:    plist.append(self.openai)     # OpenAI last (may reject tools)
         else:
+            # Synthesis order: best quality first
             if self.openai:    plist.append(self.openai)
-            if self.primary:   plist.append(self.primary)
             if self.fallback:  plist.append(self.fallback)
             if self.cerebras:  plist.append(self.cerebras)
         return plist
@@ -1295,9 +1304,11 @@ def chat():
     override_key = data.get("api_key", "").strip() or None
     mode         = data.get("mode", "assistant")     # "assistant" or "implementer"
 
-    _providers = _prov_mgr.providers(override_key)
+    # Phase 1 uses tool-optimized order (Groq first — fast + reliable tool calling)
+    # Phase 2 synthesis uses a separate list (defined inside generate())
+    _providers = _prov_mgr.providers(override_key, for_tools=True)
     if not _providers:
-        return jsonify({"error": "No AI provider configured. Set GEMINI_API_KEY or GROQ_API_KEY in Railway Variables."}), 400
+        return jsonify({"error": "No AI provider configured. Set OPENAI_API_KEY or GROQ_API_KEY in Railway Variables."}), 400
 
     _system_prompt = get_implementer_system_prompt() if mode == "implementer" else get_system_prompt()
     _tools         = IMPLEMENTER_TOOLS               if mode == "implementer" else TOOLS
@@ -1607,9 +1618,10 @@ def chat():
                     )
                 })
 
-                # Try all providers for synthesis — start from 0 (fresh attempt)
-                for _syn_idx in range(len(_providers)):
-                    _sp    = _providers[_syn_idx]
+                # Phase 2: use quality-first order (OpenAI first for best synthesis)
+                _syn_providers = _prov_mgr.providers(override_key, for_tools=False)
+                for _syn_idx in range(len(_syn_providers)):
+                    _sp    = _syn_providers[_syn_idx]
                     logging.warning("[%s] Phase2 attempt=%d prov=%s model=%s msgs=%d",
                                     _req_id, _syn_idx, _sp["name"], _sp["model"], len(_clean))
 
@@ -1619,9 +1631,9 @@ def chat():
                         cat2, can_fb2 = _prov_mgr.classify_error(err2)
                         logging.warning("[%s] Phase2 err cat=%s: %s",
                                         _req_id, cat2, str(err2)[:200])
-                        if can_fb2 and _syn_idx + 1 < len(_providers):
-                            _np2 = _providers[_syn_idx + 1]
-                            _sw2_msg = f"Synthesis failed on {_sp['name']} — trying {_np2['name']}…"
+                        if can_fb2 and _syn_idx + 1 < len(_syn_providers):
+                            _np2 = _syn_providers[_syn_idx + 1]
+                            _sw2_msg = f"Synthesis: {_sp['name']} error — trying {_np2['name']}…"
                             yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': _sw2_msg}})}\n\n"
                             continue
                         yield f"data: {json.dumps({'type': 'text', 'text': _prov_mgr.user_message(cat2)})}\n\n"
