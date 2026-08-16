@@ -29,13 +29,25 @@ DEFAULT_GROQ_KEY = (
 )
 
 def _make_chat_client(override_key=None):
-    """Groq first (reliable tool calling), Gemini as fallback."""
-    if DEFAULT_GROQ_KEY:
-        return OpenAI(api_key=DEFAULT_GROQ_KEY, base_url="https://api.groq.com/openai/v1"), "llama-3.3-70b-versatile"
+    """Gemini first (1M tokens/day free), Groq as fallback (500K/day free)."""
     if GEMINI_API_KEY:
         return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), "gemini-2.0-flash"
+    if DEFAULT_GROQ_KEY:
+        return OpenAI(api_key=DEFAULT_GROQ_KEY, base_url="https://api.groq.com/openai/v1"), "llama-3.3-70b-versatile"
     if override_key:
         return OpenAI(api_key=override_key, base_url="https://api.groq.com/openai/v1"), "llama-3.3-70b-versatile"
+    return None, None
+
+def _make_groq_client():
+    """Always returns a Groq client (used as fallback when Gemini quota hits)."""
+    if DEFAULT_GROQ_KEY:
+        return OpenAI(api_key=DEFAULT_GROQ_KEY, base_url="https://api.groq.com/openai/v1"), "llama-3.3-70b-versatile"
+    return None, None
+
+def _make_gemini_client():
+    """Always returns a Gemini client."""
+    if GEMINI_API_KEY:
+        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), "gemini-2.0-flash"
     return None, None
 
 # ── Odoo connection ────────────────────────────────────────────────────────────
@@ -1157,6 +1169,7 @@ def chat():
     _tool_runner   = _run_implementer_tool            if mode == "implementer" else run_tool
 
     def generate():
+        nonlocal client, _ai_model
         try:
             # Keep only last 4 messages from history to limit token usage
             recent = history[-4:] if len(history) > 4 else history
@@ -1164,7 +1177,7 @@ def chat():
             for m in recent:
                 messages.append({"role": m["role"], "content": m.get("content") or ""})
 
-            max_iterations   = 5
+            max_iterations   = 3    # 3 is enough for tool-call + result + answer; saves ~40% tokens
             tool_call_counts = {}   # tool_name → how many times called this turn
             tool_fail_count  = 0   # consecutive schema-validation failures
             answered         = False
@@ -1222,7 +1235,17 @@ def chat():
                         else:
                             wait_sec = 65
                         if "per day" in err_msg.lower() or "tpd" in err_msg.lower() or wait_sec > 300:
-                            yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ Daily API quota exhausted. Please wait a few hours or use a new Groq API key (free at console.groq.com).'})}\n\n"
+                            # Daily quota hit — try switching to the other provider automatically
+                            is_groq = "groq.com" in str(getattr(client, 'base_url', ''))
+                            if is_groq:
+                                fallback_c, fallback_m = _make_gemini_client()
+                            else:
+                                fallback_c, fallback_m = _make_groq_client()
+                            if fallback_c:
+                                client, _ai_model = fallback_c, fallback_m
+                                yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': f'Daily quota reached — switching to {fallback_m}…'}})}\n\n"
+                                continue  # retry with the other provider
+                            yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ Daily API quota exhausted on all providers. Please wait a few hours or add a new API key in Settings.'})}\n\n"
                             answered = True
                             break
                         else:
