@@ -1340,6 +1340,10 @@ def chat():
                         if tools:
                             kw["tools"]       = tools
                             kw["tool_choice"] = "auto"
+                            if _is_new:
+                                # reasoning models require reasoning_effort='none' for tool calls
+                                # via /v1/chat/completions — set upfront, not as a fix
+                                kw["reasoning_effort"] = "none"
                         _last_exc = None
                         for _attempt in range(6):
                             try:
@@ -1774,8 +1778,15 @@ def ai_debug():
             kw["tool_choice"] = "auto"
         else:
             kw["temperature"] = 0
+        # Pre-configure reasoning models same as _ai_call
+        _is_new = any(x in model.lower() for x in ("gpt-5","terra","sol","luna","o1-","o3-","o4-"))
+        if _is_new:
+            kw.pop("max_tokens", None); kw["max_completion_tokens"] = 5
+            kw.pop("temperature", None)
+            if with_tools:
+                kw["reasoning_effort"] = "none"
         last_exc = None
-        for _ in range(4):
+        for _ in range(5):
             try:
                 p["client"].chat.completions.create(**kw)
                 ms = int((datetime.datetime.utcnow()-t0).total_seconds()*1000)
@@ -1786,6 +1797,10 @@ def ai_debug():
                     kw.pop("max_tokens",None); kw["max_completion_tokens"] = 5
                 elif "temperature" in em:
                     kw.pop("temperature",None)
+                elif "reasoning_effort" in em:
+                    kw["reasoning_effort"] = "none"
+                elif "tool_use_failed" in em or "failed_generation" in em:
+                    kw.pop("tool_choice",None)
                 elif "tool_choice" in em:
                     kw.pop("tool_choice",None)
                 else:
