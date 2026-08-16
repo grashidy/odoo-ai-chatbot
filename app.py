@@ -1177,7 +1177,7 @@ def chat():
             for m in recent:
                 messages.append({"role": m["role"], "content": m.get("content") or ""})
 
-            max_iterations   = 3    # 3 is enough for tool-call + result + answer; saves ~40% tokens
+            max_iterations   = 5    # needs up to: tool call → result → tool call 2 → result 2 → answer
             tool_call_counts = {}   # tool_name → how many times called this turn
             tool_fail_count  = 0   # consecutive schema-validation failures
             answered         = False
@@ -1190,20 +1190,28 @@ def chat():
                 _api_err = [None]
                 _done    = threading.Event()
 
-                # Gemini requires tool definitions present whenever the history
-                # contains tool results. Use tool_choice="none" to block new calls
-                # instead of omitting tools entirely.
+                # When tool results are in history, omit tools entirely so the model
+                # is forced to produce a text answer (tool_choice="none" is unreliable
+                # on Gemini via the OpenAI-compatible endpoint).
                 _has_tool_results = any(m.get("role") == "tool" for m in messages)
                 def _groq_call():
                     try:
-                        call_kw = dict(
-                            model=_ai_model,
-                            messages=messages,
-                            tools=_tools,
-                            tool_choice="none" if _has_tool_results else "auto",
-                            max_tokens=1800,
-                            temperature=0.1,
-                        )
+                        if _has_tool_results:
+                            call_kw = dict(
+                                model=_ai_model,
+                                messages=messages,
+                                max_tokens=1800,
+                                temperature=0.1,
+                            )
+                        else:
+                            call_kw = dict(
+                                model=_ai_model,
+                                messages=messages,
+                                tools=_tools,
+                                tool_choice="auto",
+                                max_tokens=1800,
+                                temperature=0.1,
+                            )
                         _result[0] = client.chat.completions.create(**call_kw)
                     except Exception as e:
                         _api_err[0] = e
