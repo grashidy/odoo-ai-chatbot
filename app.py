@@ -36,10 +36,10 @@ class AIProviderManager:
     """
 
     _USER_MESSAGES = {
-        "auth_error":        "⚠️ AI configuration error. Please verify GEMINI_API_KEY / GROQ_API_KEY in Railway Variables.",
+        "auth_error":        "⚠️ Invalid API key. Go to Railway → Variables and check OPENAI_API_KEY / GEMINI_API_KEY / GROQ_API_KEY are correct and not revoked.",
         "model_unavailable": "⚠️ The requested AI model is unavailable. Trying backup provider…",
         "rate_limit":        "⚠️ AI rate limit reached. Please wait a moment and try again.",
-        "daily_quota":       "⚠️ Daily AI quota exhausted on all providers. Limits reset at midnight UTC.",
+        "daily_quota":       "⚠️ All AI providers are unavailable (quota exhausted or invalid keys). Fix: go to Railway → Variables and update GEMINI_API_KEY with a fresh key from aistudio.google.com (free). Then check OPENAI_API_KEY is correct.",
         "server_error":      "⚠️ AI service temporarily unavailable. Please try again shortly.",
         "timeout":           "⚠️ AI request timed out. Please try again.",
         "bad_request":       "⚠️ The AI received an invalid request. Please rephrase your question.",
