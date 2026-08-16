@@ -91,7 +91,10 @@ class AIProviderManager:
         if "404" in msg:
             return "model_unavailable", True
         if "429" in msg or "rate_limit" in msg.lower():
-            if any(x in msg.lower() for x in ("per day", "daily", "exceeded", "tpd")):
+            _ml = msg.lower()
+            _is_daily = ("per day" in _ml or "daily" in _ml or "tpd" in _ml or
+                         ("exceeded" in _ml and ("quota" in _ml or "billing" in _ml)))
+            if _is_daily:
                 return "daily_quota", True
             return "rate_limit", True
         if any(f"{c}" in msg for c in (500, 502, 503, 504)):
@@ -1306,20 +1309,25 @@ def chat():
                         if tools:
                             kw["tools"]       = tools
                             kw["tool_choice"] = "auto"
-                        # Auto-fix unsupported params (gpt-5 series quirks):
-                        # 1st 400 → max_completion_tokens; 2nd → drop temperature
+                        # Auto-fix unsupported params for newer OpenAI models (gpt-5/o-series):
+                        # Each attempt removes one rejected parameter until the call succeeds.
                         _last_exc = None
-                        for _ in range(3):
+                        for _attempt in range(5):
                             try:
                                 _r[0] = cl.chat.completions.create(**kw)
                                 break
                             except Exception as _exc:
-                                _em = str(_exc); _last_exc = _exc
+                                _em = str(_exc).lower(); _last_exc = _exc
                                 if "max_tokens" in _em and "max_completion_tokens" in _em:
                                     kw.pop("max_tokens", None)
                                     kw["max_completion_tokens"] = 1800
                                 elif "temperature" in _em:
                                     kw.pop("temperature", None)
+                                elif "tool_choice" in _em:
+                                    kw.pop("tool_choice", None)
+                                elif "tools" in _em and ("not support" in _em or "invalid" in _em or "unknown" in _em):
+                                    kw.pop("tools", None)
+                                    kw.pop("tool_choice", None)
                                 else:
                                     _e[0] = _exc; break
                         else:
