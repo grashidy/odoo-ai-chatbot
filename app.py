@@ -597,7 +597,7 @@ RULES:
 - NEVER call the same model more than once per turn — pick the right fields the first time.
 - Totals/counts → odoo_read_group. Lists → odoo_search (limit 50, increase to 200 for "all records").
 - Format numbers with commas. Currency = EGP. Use markdown tables.
-- On field error → odoo_get_fields once, then retry. Multi-company context is automatic.
+- On ANY field error (field not found / invalid field) → IMMEDIATELY call odoo_get_fields on that model, pick the correct fields from the result, then retry the search. NEVER report "field not available" — always retry with correct fields.
 - If a tool returns an error, report the error — do NOT invent data to compensate.
 
 CHARTS: CHART_BAR:{{"title":"T","labels":["A","B"],"data":[10,20]}}  CHART_PIE:{{"title":"T","labels":["A"],"data":[1]}}
@@ -813,11 +813,12 @@ hr.payslip.run  →  payroll batches / pay runs
 ── APPRAISAL / PERFORMANCE MANAGEMENT ──
 hr.appraisal  →  ALL appraisal records (standard + EPA custom module — same table)
   Fields: employee_id, department_id, company_id, batch_id, evaluation_period_id,
-          state, date_close, date_deadline,
+          state, date_close, date_open,
           final_grade, epa_final_grade, result_grade,
           total_score, final_score, epa_final_score, kpi_total_score, kpi_total_weight,
           is_employee_done, is_manager_done, is_senior_done, hr_delivered,
           manager_feedback, employee_feedback, development_plan, appraisal_purpose_id
+  ⚠ CRITICAL: do NOT use date_deadline — it does not exist. Use date_close for deadline/due date.
 
   ⚠ COMPLETE WORKFLOW — 8 real state values (NOT "done", never use "done"):
   new               → Just created, not yet started
