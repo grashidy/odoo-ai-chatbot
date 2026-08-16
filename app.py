@@ -1709,6 +1709,55 @@ def health_check():
         "working_providers": [r["provider"] for r in results if r["status"] == "ok"],
     }), http_code
 
+@app.route("/ai/debug")
+def ai_debug():
+    """Human-readable provider status page — shows exact error per provider."""
+    import concurrent.futures, datetime
+
+    def _probe_full(p):
+        name = p["name"]; model = p["model"]
+        t0 = datetime.datetime.utcnow()
+        kw = dict(model=model,
+                  messages=[{"role": "user", "content": "Reply OK."}],
+                  max_tokens=5, temperature=0)
+        last_exc = None
+        for _ in range(4):
+            try:
+                p["client"].chat.completions.create(**kw)
+                ms = int((datetime.datetime.utcnow() - t0).total_seconds() * 1000)
+                return name, model, "✅ OK", ms, None
+            except Exception as ex:
+                em = str(ex).lower(); last_exc = ex
+                if "max_tokens" in em and "max_completion_tokens" in em:
+                    kw.pop("max_tokens", None); kw["max_completion_tokens"] = 5
+                elif "temperature" in em:
+                    kw.pop("temperature", None)
+                else:
+                    break
+        ms = int((datetime.datetime.utcnow() - t0).total_seconds() * 1000)
+        return name, model, "❌ FAIL", ms, str(last_exc)
+
+    provs = _prov_mgr.providers()
+    rows = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        futs = [ex.submit(_probe_full, p) for p in provs]
+        for f in concurrent.futures.as_completed(futs):
+            rows.append(f.result())
+
+    html = ["<html><head><meta charset='utf-8'><title>AI Debug</title>",
+            "<style>body{font-family:monospace;padding:20px;background:#111;color:#eee}",
+            "table{border-collapse:collapse;width:100%}",
+            "th,td{border:1px solid #444;padding:8px 12px;text-align:left}",
+            "th{background:#222}.err{color:#f88;word-break:break-all}</style></head><body>",
+            f"<h2>AI Provider Debug — {datetime.datetime.utcnow().strftime('%H:%M:%S UTC')}</h2>",
+            "<table><tr><th>Provider</th><th>Model</th><th>Status</th><th>ms</th><th>Error</th></tr>"]
+    for name, model, status, ms, err in rows:
+        err_cell = f"<span class='err'>{err}</span>" if err else "—"
+        html.append(f"<tr><td>{name}</td><td>{model}</td><td>{status}</td>"
+                    f"<td>{ms}</td><td>{err_cell}</td></tr>")
+    html.append("</table></body></html>")
+    return "\n".join(html)
+
 @app.route("/reports-data")
 @app.route("/ai/reports-data")
 def reports_data():
