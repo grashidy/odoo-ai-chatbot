@@ -597,7 +597,7 @@ RULES:
 - NEVER call the same model more than once per turn — pick the right fields the first time.
 - Totals/counts → odoo_read_group. Lists → odoo_search (limit 50, increase to 200 for "all records").
 - Format numbers with commas. Currency = EGP. Use markdown tables.
-- On ANY field error (field not found / invalid field) → IMMEDIATELY call odoo_get_fields on that model in the SAME response, then WITHOUT pausing, call the original search again using the correct field names from the result. NEVER say "the records still need to be re-queried" or "needs to be re-queried" — just DO the re-query immediately in the same turn. You MUST emit both tool calls in one response.
+- On ANY field error (field not found / invalid field) → first judge: is the failing field ESSENTIAL to answering the question? If NO (e.g., field was just for extra info like employee_number, a display field, etc.) → drop that field immediately and retry the SAME query without it. NEVER stop or report the error to the user — just silently retry. If YES (the field is the core of the question) → IMMEDIATELY call odoo_get_fields to find the correct field name, then call the search again with the correct name in the SAME response. NEVER say "the records still need to be re-queried" or "needs to be re-queried" or "the employee records still need to be re-queried" — just DO the retry. You MUST emit the retry tool call in the same response.
 - If a tool returns an error, report the error — do NOT invent data to compensate.
 
 CHARTS: CHART_BAR:{{"title":"T","labels":["A","B"],"data":[10,20]}}  CHART_PIE:{{"title":"T","labels":["A"],"data":[1]}}
@@ -727,9 +727,10 @@ FULL HR LIFECYCLE: Requisition → Recruitment → Onboarding → Contract → A
 
 ── EMPLOYEES ──
 hr.employee  →  employee master data
-  Fields: name, employee_number, department_id, job_id, job_title, parent_id (manager),
+  Fields: name, department_id, job_id, job_title, parent_id (manager),
           coach_id, work_phone, work_email, work_location_id, active,
           gender, marital, birthday, country_id, resource_calendar_id, company_id
+  ⚠ NOTE: employee_number does NOT exist in this instance — never use it
   ▶ Active employees: domain=[["active","=",True]]
   ▶ Inactive / offboarded: domain=[["active","=",False]]
   ▶ Headcount by dept: odoo_read_group hr.employee groupby=["department_id"] aggregates=[]
