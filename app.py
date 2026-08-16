@@ -661,18 +661,93 @@ hr.payslip.run  →  payroll batches / pay runs
   ▶ Closed / disbursed: domain=[["state","=","close"]]
 
 ── APPRAISAL / PERFORMANCE MANAGEMENT ──
-hr.appraisal  →  standard Odoo appraisals
-  Fields: employee_id, manager_ids, date_close, state, rating
-  state: new | pending | done | cancel
-  rating: 0=Good | 1=Very Good | 2=Excellent
-  ▶ Completed: domain=[["state","=","done"]]
-  ▶ Pending: domain=[["state","in",["new","pending"]]]
+hr.appraisal  →  ALL appraisal records (standard + EPA custom module — same table)
+  Fields: employee_id, department_id, company_id, batch_id, evaluation_period_id,
+          state, date_close, date_deadline,
+          final_grade, epa_final_grade, result_grade,
+          total_score, final_score, epa_final_score, kpi_total_score, kpi_total_weight,
+          is_employee_done, is_manager_done, is_senior_done, hr_delivered,
+          manager_feedback, employee_feedback, development_plan, appraisal_purpose_id
 
-epa.appraisal  →  EPA appraisals (custom module)
-  Fields: employee_id, period_id, state, final_score, self_score, manager_score, batch_id
-  state: draft | in_progress | pending_manager | done | cancelled
-  ▶ Completed: domain=[["state","=","done"]]
-  ▶ By period: domain=[["period_id","=",<period_id>]]
+  ⚠ COMPLETE WORKFLOW — 8 real state values (NOT "done", never use "done"):
+  new               → Just created, not yet started
+  pending           → Submitted / waiting to begin
+  self_evaluation   → Employee filling their self-assessment
+  manager_evaluation → Direct manager evaluating
+  senior_evaluation  → Senior manager evaluating
+  hr_evaluation      → HR department final review
+  completed          → Fully completed (use "completed", NOT "done")
+  cancel             → Cancelled
+
+  Grade fields (for completed appraisals):
+  - final_grade:     ++A | +A | A | -A | B | … (overall performance grade)
+  - epa_final_grade: A++ | A+ | A | A- | B+ | B | D (EPA grading scale)
+  - result_grade:    pp_a=++A | p_a=+A | a=A | m_a=-A | c=C (internal enum)
+
+  ▶ All appraisals by status:  odoo_read_group groupby=["state"] aggregates=[]
+  ▶ Completed:                 domain=[["state","=","completed"]]
+  ▶ In-progress (any step):    domain=[["state","in",["self_evaluation","manager_evaluation","senior_evaluation","hr_evaluation"]]]
+  ▶ Not yet started:           domain=[["state","in",["new","pending"]]]
+  ▶ Cancelled:                 domain=[["state","=","cancel"]]
+  ▶ By department:             odoo_read_group groupby=["department_id"] aggregates=[]
+  ▶ Avg scores (completed):    domain=[["state","=","completed"]] then odoo_read_group groupby=["department_id"] aggregates=["total_score:avg","epa_final_score:avg","kpi_total_score:avg"]
+  ▶ By grade (completed):      odoo_read_group groupby=["final_grade"] aggregates=[] domain=[["state","=","completed"]]
+  ▶ By period:                 domain=[["evaluation_period_id","=",<period_id>]]
+  ▶ By batch:                  domain=[["batch_id","=",<batch_id>]]
+
+hr.appraisal.review  →  Multi-evaluator review entries linked to an appraisal
+  Each appraisal can have multiple reviewers; this stores each reviewer's submission.
+  Fields: appraisal_id, evaluator_id, evaluator_type, status, score, overall_comment, submitted_date
+  evaluator_type: employee | direct_manager | senior_manager | hr
+  status: pending | in_progress | submitted
+  ⚠ Uses "status" NOT "state"
+  ▶ Submitted reviews:  domain=[["status","=","submitted"]]
+  ▶ Pending reviews:    domain=[["status","in",["pending","in_progress"]]]
+  ▶ By evaluator type:  odoo_read_group groupby=["evaluator_type"] aggregates=[]
+  ▶ By evaluator type + status: odoo_read_group groupby=["evaluator_type","status"] aggregates=[]
+
+hr.appraisal.review.line  →  Individual criterion scores within a review
+  Fields: review_id, criterion_id, section_name, criterion_name, rating, comment, weight_pct, weighted_score
+  ▶ By section: odoo_read_group groupby=["section_name"] aggregates=["weighted_score:sum"]
+
+hr.appraisal.line  →  Appraisal section/criteria scoring lines (per appraisal)
+  Fields: appraisal_id, section_id, criterion_id, section_name, criterion_name,
+          score, score_float, section_weight, weighted_score, is_mandatory, assessor_done
+  ▶ Scores for one appraisal: domain=[["appraisal_id","=",<id>]]
+  ▶ Avg by section: odoo_read_group groupby=["section_name"] aggregates=["weighted_score:avg"]
+
+hr.appraisal.goal  →  Employee development goals linked to appraisals
+  Fields: appraisal_id, dev_goal_appraisal_id, employee_id, manager_id,
+          name, progression, deadline, goal_status, priority, goal_type,
+          weight, kpi_score, weighted_score, kpi_grade
+  goal_status: not_started | in_progress | completed (use goal_status NOT state)
+  priority: 0=Normal | 1=High | 2=Critical
+  ▶ All goals: domain=[]
+  ▶ By status: odoo_read_group groupby=["goal_status"] aggregates=[]
+  ▶ Overdue: fetch all with deadline < today then filter goal_status != completed
+  ▶ By employee: domain=[["employee_id","=",<emp_id>]]
+
+epa.appraisal.batch  →  Appraisal batch / cycle management records
+  ⚠ "epa.appraisal" does NOT exist — use "epa.appraisal.batch" for batches.
+  Fields: name, period_id, department_id, manager_id, appraisal_template_id, state, date_close, appraisal_count
+  state: draft | in_progress
+  ▶ Active batches: domain=[["state","=","in_progress"]]
+  ▶ All batches: domain=[]
+
+epa.period  →  Evaluation periods / assessment cycles
+  Fields: name, state, date_from, date_to, notes, active
+  state: draft | open | closed
+  ▶ Open periods: domain=[["state","=","open"]]
+  ▶ All periods: domain=[]
+  ▶ Current period: domain=[["state","=","open"],["date_from","<=","{today_date}"],["date_to",">=","{today_date}"]]
+
+hr.performance.evaluation  →  Standalone performance evaluation forms (separate from hr.appraisal)
+  Fields: name, employee_id, evaluator_id, senior_mgr_id, period_id, template_id,
+          state, final_grade, final_score, kpi_section_score, behaviour_section_score, mgmt_section_score,
+          employee_comments, manager_notes, submission_date
+  state: draft | pending_employee | employee_submitted | manager_submitted | senior_approved | closed
+  ▶ Closed evaluations: domain=[["state","=","closed"]]
+  ▶ By state: odoo_read_group groupby=["state"] aggregates=[]
   ▶ Score summary: odoo_read_group groupby=["period_id"] aggregates=["final_score:avg"]
 
 hr.performance.kpi  →  KPI LIBRARY / DEFINITIONS (NOT per-employee results)
@@ -725,8 +800,15 @@ hr.employee.skill  →  employee skills / competency matrix
 | Leave Allocations       | hr.leave.allocation  | state=validate               | employee_id       |
 | Payroll Batches         | hr.payslip.run       | state=close                  | date_start        |
 | Monthly Payslips        | hr.payslip           | state=done, month            | employee_id       |
-| Appraisal Status        | hr.appraisal         | —                            | state             |
-| EPA Scores by Period    | epa.appraisal        | state=done                   | period_id         |
+| Appraisal by Status     | hr.appraisal         | —                            | state             |
+| Appraisal by Dept       | hr.appraisal         | —                            | department_id     |
+| Appraisal Scores        | hr.appraisal         | state=completed              | department_id     |
+| Appraisal by Grade      | hr.appraisal         | state=completed              | final_grade       |
+| Pending Reviews         | hr.appraisal.review  | status=pending/in_progress   | evaluator_type    |
+| Development Goals       | hr.appraisal.goal    | —                            | goal_status       |
+| Evaluation Periods      | epa.period           | state=open                   | date_from         |
+| Appraisal Batches       | epa.appraisal.batch  | state=in_progress            | department_id     |
+| Perf. Evaluations       | hr.performance.evaluation | state=closed            | period_id         |
 | KPI Achievement         | hr.appraisal.kpi.result | —                         | employee_id       |
 | KPI Definitions         | hr.performance.kpi   | state=approved               | department_id     |
 | Employee Skills Matrix  | hr.employee.skill    | —                            | skill_type_id     |
@@ -752,7 +834,14 @@ hr.employee.skill  →  employee skills / competency matrix
 • attendance / check-in / حضور / انصراف / دوام             → hr.attendance
 • leaves / time-off / إجازات / غياب                        → hr.leave  (allocations → hr.leave.allocation)
 • payroll / salary / payslips / رواتب / مرتبات / كشف راتب  → hr.payslip + hr.payslip.run
-• appraisal / performance review / تقييم / تقييم الأداء    → hr.appraisal / epa.appraisal
+• appraisal status / تقييمات حسب الحالة / مكتمل / معلق     → hr.appraisal groupby=["state"] (8 states: new/pending/self_evaluation/manager_evaluation/senior_evaluation/hr_evaluation/completed/cancel)
+• appraisal scores / درجات التقييم / نتائج                 → hr.appraisal domain=[["state","=","completed"]] fields=[total_score,epa_final_score,final_grade]
+• appraisal reviews / مراجعات / multi-evaluator             → hr.appraisal.review (status: pending/in_progress/submitted)
+• development goals / أهداف التطوير / dev goals             → hr.appraisal.goal (goal_status not state)
+• evaluation periods / دورات التقييم / فترات                → epa.period (state: draft/open/closed)
+• appraisal batches / دفعات التقييم                         → epa.appraisal.batch (state: draft/in_progress)
+• performance evaluation / تقييم الأداء (standalone form)   → hr.performance.evaluation (state: draft/pending_employee/employee_submitted/manager_submitted/senior_approved/closed)
+• ⚠ epa.appraisal DOES NOT EXIST — never use it; use hr.appraisal for all appraisal queries
 • KPI achievement / نسبة تحقيق / من حقق / employee scores  → hr.appraisal.kpi.result  (has achievement_pct, employee_id)
 • KPI definitions / KPI library / مكتبة المؤشرات          → hr.performance.kpi  (definitions only, NO scores)
 • skills / competency / مهارات الموظفين                    → hr.employee.skill
