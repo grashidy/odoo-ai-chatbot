@@ -16,12 +16,20 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 # Global socket timeout prevents xmlrpc calls from hanging indefinitely
 socket.setdefaulttimeout(55)
 
-# ── AI provider: Gemini (primary) with Groq fallback for Whisper ───────────────
+# ── AI provider: Gemini (primary) with Groq fallback ───────────────────────────
 GEMINI_API_KEY  = os.environ.get("GEMINI_API_KEY", "").strip()
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-AI_MODEL        = "gemini-1.5-flash"
 
-# Groq key — only used for Whisper audio transcription
+# Tried in order on 404 — each is tried before falling back to Groq
+GEMINI_MODEL_CHAIN = [
+    "gemini-2.5-flash",       # newest, highest quality
+    "gemini-2.0-flash-lite",  # stable lightweight
+    "gemini-1.5-flash-8b",    # legacy small — almost always available
+    "gemini-1.5-flash",       # legacy full — last resort
+]
+AI_MODEL = GEMINI_MODEL_CHAIN[0]
+
+# Groq fallback (free tier: 500K tokens/day)
 _key_file = Path(__file__).parent / ".groq_key"
 DEFAULT_GROQ_KEY = (
     os.environ.get("GROQ_API_KEY", "").strip()
@@ -29,9 +37,9 @@ DEFAULT_GROQ_KEY = (
 )
 
 def _make_chat_client(override_key=None):
-    """Gemini first (1M tokens/day free), Groq as fallback (500K/day free)."""
+    """Gemini first (free, high quota), Groq as fallback."""
     if GEMINI_API_KEY:
-        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), "gemini-1.5-flash"
+        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), GEMINI_MODEL_CHAIN[0]
     if DEFAULT_GROQ_KEY:
         return OpenAI(api_key=DEFAULT_GROQ_KEY, base_url="https://api.groq.com/openai/v1"), "llama-3.3-70b-versatile"
     if override_key:
@@ -39,15 +47,15 @@ def _make_chat_client(override_key=None):
     return None, None
 
 def _make_groq_client():
-    """Always returns a Groq client (used as fallback when Gemini quota hits)."""
+    """Returns a Groq client (used as fallback when all Gemini models fail)."""
     if DEFAULT_GROQ_KEY:
         return OpenAI(api_key=DEFAULT_GROQ_KEY, base_url="https://api.groq.com/openai/v1"), "llama-3.3-70b-versatile"
     return None, None
 
-def _make_gemini_client():
-    """Always returns a Gemini client."""
+def _make_gemini_client(model=None):
+    """Returns a Gemini client with the specified model (default: first in chain)."""
     if GEMINI_API_KEY:
-        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), "gemini-1.5-flash"
+        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), (model or GEMINI_MODEL_CHAIN[0])
     return None, None
 
 # ── Odoo connection ────────────────────────────────────────────────────────────
@@ -1177,7 +1185,7 @@ def chat():
             for m in recent:
                 messages.append({"role": m["role"], "content": m.get("content") or ""})
 
-            max_iterations        = 5    # needs up to: tool call → result → tool call 2 → result 2 → answer
+            max_iterations        = 10   # needs up to: 4 Gemini model chain tries + Groq switch + tool call + synthesis + retries
             tool_call_counts      = {}   # tool_name → how many times called this turn
             tool_fail_count       = 0   # consecutive schema-validation failures
             provider_switch_count = 0   # total provider switches — cap at 2 to prevent cycling
@@ -1274,23 +1282,42 @@ def chat():
                 except Exception as api_err:
                     err_msg = str(api_err)
                     is_rate      = "rate_limit" in err_msg.lower() or "429" in err_msg
-                    is_model_404 = ("404" in err_msg and ("no longer available" in err_msg or "not found" in err_msg.lower()))
+                    is_model_404 = (
+                        "404" in err_msg and (
+                            "no longer available" in err_msg or
+                            "not found"           in err_msg.lower() or
+                            "does not exist"      in err_msg.lower() or
+                            "not available"       in err_msg.lower() or
+                            "model"               in err_msg.lower()
+                        )
+                    )
                     is_tool_fail = "tool_use_failed" in err_msg or "tool call validation" in err_msg.lower()
                     if is_model_404:
-                        # Model deprecated/unavailable — switch provider (max 2 switches to prevent cycling)
                         is_gemini = "generativelanguage" in str(getattr(client, 'base_url', ''))
                         if is_gemini:
+                            # Try the next model in the Gemini chain before falling back to Groq
+                            try:
+                                _next_idx = GEMINI_MODEL_CHAIN.index(_ai_model) + 1
+                            except ValueError:
+                                _next_idx = len(GEMINI_MODEL_CHAIN)
+                            if _next_idx < len(GEMINI_MODEL_CHAIN):
+                                _ai_model = GEMINI_MODEL_CHAIN[_next_idx]
+                                logging.warning("Gemini 404 — trying next model in chain: %s", _ai_model)
+                                yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': f'Model unavailable — trying {_ai_model}…'}})}\n\n"
+                                continue  # retry with next Gemini model (no provider switch counter)
+                            # All Gemini models exhausted — fall back to Groq
                             fallback_c, fallback_m = _make_groq_client()
                         else:
-                            fallback_c, fallback_m = _make_gemini_client()
+                            # Groq gave 404 — try Gemini (reset to first in chain)
+                            fallback_c, fallback_m = _make_gemini_client(GEMINI_MODEL_CHAIN[0])
                         if fallback_c and provider_switch_count < 2:
                             provider_switch_count += 1
                             client, _ai_model = fallback_c, fallback_m
-                            yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': f'Model unavailable — switching to {fallback_m}…'}})}\n\n"
+                            yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': f'Switching provider to {fallback_m}…'}})}\n\n"
                             continue
-                        # No fallback or already switched twice — show clear error
+                        # No fallback available — show diagnostic
                         _cur_model = _ai_model
-                        yield f"data: {json.dumps({'type': 'text', 'text': f'❌ AI model unavailable ({_cur_model}). Both providers failed. Please check: (1) GEMINI_API_KEY is set in Railway Variables, (2) The model name is still valid in Google AI Studio.'})}\n\n"
+                        yield f"data: {json.dumps({'type': 'text', 'text': f'❌ All AI models unavailable (last tried: {_cur_model}). Please check: (1) GEMINI_API_KEY is set in Railway Variables, (2) Optionally set GROQ_API_KEY as backup at groq.com/keys'})}\n\n"
                         answered = True
                         break
                     if is_rate:
