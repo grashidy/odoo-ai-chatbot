@@ -31,7 +31,7 @@ DEFAULT_GROQ_KEY = (
 def _make_chat_client(override_key=None):
     """Gemini first (1M tokens/day free), Groq as fallback (500K/day free)."""
     if GEMINI_API_KEY:
-        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), "gemini-2.5-flash"
+        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), "gemini-1.5-flash"
     if DEFAULT_GROQ_KEY:
         return OpenAI(api_key=DEFAULT_GROQ_KEY, base_url="https://api.groq.com/openai/v1"), "llama-3.3-70b-versatile"
     if override_key:
@@ -47,7 +47,7 @@ def _make_groq_client():
 def _make_gemini_client():
     """Always returns a Gemini client."""
     if GEMINI_API_KEY:
-        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), "gemini-2.5-flash"
+        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), "gemini-1.5-flash"
     return None, None
 
 # ── Odoo connection ────────────────────────────────────────────────────────────
@@ -1223,7 +1223,22 @@ def chat():
                 except Exception as api_err:
                     err_msg = str(api_err)
                     is_rate      = "rate_limit" in err_msg.lower() or "429" in err_msg
+                    is_model_404 = ("404" in err_msg and ("no longer available" in err_msg or "not found" in err_msg.lower()))
                     is_tool_fail = "tool_use_failed" in err_msg or "tool call validation" in err_msg.lower()
+                    if is_model_404:
+                        # Model deprecated/unavailable — auto-switch to the other provider
+                        is_gemini = "generativelanguage" in str(getattr(client, 'base_url', ''))
+                        if is_gemini:
+                            fallback_c, fallback_m = _make_groq_client()
+                        else:
+                            fallback_c, fallback_m = _make_gemini_client()
+                        if fallback_c:
+                            client, _ai_model = fallback_c, fallback_m
+                            yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': f'Model unavailable — switching to {fallback_m}…'}})}\n\n"
+                            continue
+                        yield f"data: {json.dumps({'type': 'text', 'text': '❌ AI model unavailable and no fallback configured. Please check your API keys in Settings.'})}\n\n"
+                        answered = True
+                        break
                     if is_rate:
                         # Parse Groq wait time — handles "5s", "1m5s", "1m5.000s"
                         _m_min = re.search(r'try again in (\d+)m([\d.]+)s', err_msg, re.IGNORECASE)
