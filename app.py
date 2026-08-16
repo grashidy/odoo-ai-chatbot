@@ -43,16 +43,25 @@ class AIProviderManager:
         "server_error":      "⚠️ AI service temporarily unavailable. Please try again shortly.",
         "timeout":           "⚠️ AI request timed out. Please try again.",
         "bad_request":       "⚠️ The AI received an invalid request. Please rephrase your question.",
-        "no_providers":      "⚠️ No AI providers configured. Set GEMINI_API_KEY or GROQ_API_KEY in Railway Variables.",
+        "no_providers":      "⚠️ No AI providers configured. Set OPENAI_API_KEY, GEMINI_API_KEY, or GROQ_API_KEY in Railway Variables.",
         "unknown_error":     "⚠️ AI service temporarily unavailable. Please try again shortly.",
     }
 
     def __init__(self):
-        self.primary  = self._build_gemini()
-        self.fallback = self._build_groq()
+        self.openai   = self._build_openai()   # primary
+        self.primary  = self._build_gemini()   # secondary
+        self.fallback = self._build_groq()     # tertiary
         self._log_startup()
 
     # ── Provider builders ────────────────────────────────────────────────────
+
+    def _build_openai(self):
+        key = os.environ.get("OPENAI_API_KEY", "").strip()
+        if not key:
+            return None
+        model = os.environ.get("OPENAI_MODEL", "gpt-4o")
+        return {"name": "OpenAI", "model": model,
+                "client": OpenAI(api_key=key)}   # default base_url = api.openai.com
 
     def _build_gemini(self):
         key = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -99,16 +108,15 @@ class AIProviderManager:
     # ── Provider iteration ───────────────────────────────────────────────────
 
     def providers(self, override_key=None):
-        """Yield configured providers in order: primary first, then fallback."""
+        """Return providers in priority order: OpenAI → Gemini → Groq."""
         plist = []
         if override_key:
             plist.append({"name": "Custom", "model": "llama-3.1-8b-instant",
                           "client": OpenAI(api_key=override_key, base_url=GROQ_BASE_URL)})
         else:
-            if self.primary:
-                plist.append(self.primary)
-            if self.fallback:
-                plist.append(self.fallback)
+            if self.openai:   plist.append(self.openai)
+            if self.primary:  plist.append(self.primary)
+            if self.fallback: plist.append(self.fallback)
         return plist
 
     def best_client(self, override_key=None):
@@ -121,14 +129,15 @@ class AIProviderManager:
 
     def _log_startup(self):
         logging.warning("══ AI PROVIDER STATUS ══════════════════════════════")
-        for label, p in [("PRIMARY  (Gemini)", self.primary),
-                          ("FALLBACK (Groq)  ", self.fallback)]:
+        for label, p in [("PRIMARY   (OpenAI)", self.openai),
+                          ("SECONDARY (Gemini)", self.primary),
+                          ("FALLBACK  (Groq)  ", self.fallback)]:
             if p:
                 logging.warning("  %s  model=%-30s  key=✓", label, p["model"])
             else:
                 logging.warning("  %s  NOT CONFIGURED", label)
-        if not self.primary and not self.fallback:
-            logging.warning("  ⚠ CRITICAL: no AI providers — set GEMINI_API_KEY or GROQ_API_KEY")
+        if not self.openai and not self.primary and not self.fallback:
+            logging.warning("  ⚠ CRITICAL: no AI providers configured")
         logging.warning("════════════════════════════════════════════════════")
 
 
