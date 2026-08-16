@@ -675,13 +675,31 @@ epa.appraisal  →  EPA appraisals (custom module)
   ▶ By period: domain=[["period_id","=",<period_id>]]
   ▶ Score summary: odoo_read_group groupby=["period_id"] aggregates=["final_score:avg"]
 
-hr.performance.kpi  →  KPI records (custom module)
-  Fields: name, employee_id, weight, target, achievement, state, period_id, kpi_group_id, requested_by
+hr.performance.kpi  →  KPI LIBRARY / DEFINITIONS (NOT per-employee results)
+  This is the catalogue of KPI definitions — NOT individual employee scores.
+  Fields: name, code, unit, calculation_method, default_weight, target, state, requested_by, department_id, active
   state: draft | pending | approved | rejected
-  ▶ Approved KPIs: domain=[["state","=","approved"]]
-  ▶ Pending approval: domain=[["state","in",["draft","pending"]]]
-  ▶ Avg achievement: odoo_read_group groupby=["employee_id"] aggregates=["achievement:avg"]
-  ▶ By group: odoo_read_group groupby=["kpi_group_id"] aggregates=["achievement:avg","weight:sum"]
+  ⚠ NO employee_id, NO achievement, NO period_id, NO kpi_group_id on this model.
+  ▶ All approved KPI definitions: domain=[["state","=","approved"]]
+  ▶ Use this ONLY to list/browse KPI definitions — never for employee scores.
+
+hr.appraisal.kpi.result  →  Per-employee KPI RESULTS linked to an appraisal (custom module)
+  This is the correct model for "who achieved their KPI / نسبة تحقيق مؤشرات الأداء".
+  Fields: employee_id, appraisal_id, kpi_id, kpi_display_name, weight, target, actual,
+          achievement_pct, weighted_score, kpi_grade, notes, unit
+  achievement_pct = (actual / target × 100) — already computed, stored as a number 0–100+
+  ▶ All results: domain=[]
+  ▶ Achieved target (≥100%): fetch all then filter where achievement_pct >= 100
+  ▶ Avg achievement by employee: odoo_read_group groupby=["employee_id"] aggregates=["achievement_pct:avg","weighted_score:avg"]
+  ▶ Results for one appraisal: domain=[["appraisal_id","=",<id>]]
+  ▶ Results for one employee: domain=[["employee_id","=",<emp_id>]]
+  ▶ Summary across all: odoo_read_group groupby=["employee_id"] aggregates=["achievement_pct:avg","weight:sum"]
+  NOTE: achievement_pct is a PERCENTAGE — show as average (متوسط), never as sum.
+
+hr.appraisal.kpi  →  Arabic-form KPI lines (performance evaluation form)
+  Fields: appraisal_id, name, name_ar, weight, target_value, actual_value, score, weighted_score
+  ▶ By appraisal: domain=[["appraisal_id","=",<id>]]
+  ▶ Avg score by appraisal: odoo_read_group groupby=["appraisal_id"] aggregates=["score:avg","weighted_score:sum"]
 
 ── SKILLS ──
 hr.employee.skill  →  employee skills / competency matrix
@@ -709,7 +727,8 @@ hr.employee.skill  →  employee skills / competency matrix
 | Monthly Payslips        | hr.payslip           | state=done, month            | employee_id       |
 | Appraisal Status        | hr.appraisal         | —                            | state             |
 | EPA Scores by Period    | epa.appraisal        | state=done                   | period_id         |
-| KPI Achievement         | hr.performance.kpi   | state=approved               | employee_id       |
+| KPI Achievement         | hr.appraisal.kpi.result | —                         | employee_id       |
+| KPI Definitions         | hr.performance.kpi   | state=approved               | department_id     |
 | Employee Skills Matrix  | hr.employee.skill    | —                            | skill_type_id     |
 
 ══ ROUTING — which model to answer each question ══
@@ -734,7 +753,8 @@ hr.employee.skill  →  employee skills / competency matrix
 • leaves / time-off / إجازات / غياب                        → hr.leave  (allocations → hr.leave.allocation)
 • payroll / salary / payslips / رواتب / مرتبات / كشف راتب  → hr.payslip + hr.payslip.run
 • appraisal / performance review / تقييم / تقييم الأداء    → hr.appraisal / epa.appraisal
-• KPI / مؤشرات الأداء / مؤشر                              → hr.performance.kpi
+• KPI achievement / نسبة تحقيق / من حقق / employee scores  → hr.appraisal.kpi.result  (has achievement_pct, employee_id)
+• KPI definitions / KPI library / مكتبة المؤشرات          → hr.performance.kpi  (definitions only, NO scores)
 • skills / competency / مهارات الموظفين                    → hr.employee.skill
 • offboarding / resigned / departed / مغادرة / مستقيل      → hr.employee domain=[["active","=",False]]
 

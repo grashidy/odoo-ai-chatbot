@@ -2120,15 +2120,20 @@ function buildReportModule(rawTableHtml, headers, bodyRows) {
   const dateHdrRe = /date|time|تاريخ|وقت|start|end|created|deadline/i;
   const idHdrRe   = /\bid\b|_id$|\bno\.?\b|\bseq\b|\brank\b|^\s*#/i;
   const dateValRe = /^\d{4}[-\/]\d{2}[-\/]\d{2}|^\d{2}[-\/]\d{2}[-\/]\d{4}/;
+  // Percentage columns (نسبة / % in header, or values consistently 0–100) → use AVG not SUM
+  const pctHdrRe  = /نسبة|%|percent|score|rate|درجة|achievement|تحقيق|كفاءة|تقييم/i;
   const numCols = {};
   headers.forEach((h, ci) => {
     if (dateHdrRe.test(h)) return;
     if (idHdrRe.test(h)) return;   // skip ID / sequence columns — summing IDs is meaningless
     const vals = bodyRows.map(r => String(r[ci] || '').trim());
     if (vals.some(v => dateValRe.test(v))) return;
-    let sum = 0, isNum = false;
-    vals.forEach(v => { const n = parseFloat(v.replace(/,/g, '')); if (!isNaN(n)) { sum += n; isNum = true; } });
-    if (isNum) numCols[h] = sum;
+    let sum = 0, count = 0;
+    vals.forEach(v => { const n = parseFloat(v.replace(/,/g, '')); if (!isNaN(n)) { sum += n; count++; } });
+    if (count > 0) {
+      const isPct = pctHdrRe.test(h) || (sum / count <= 100 && vals.every(v => { const n = parseFloat(v.replace(/,/g,'')); return isNaN(n) || (n >= 0 && n <= 100); }));
+      numCols[h] = { sum, count, isPct };
+    }
   });
 
   const isArabic   = headers.some(h => /[؀-ۿ]/.test(h));
@@ -2136,11 +2141,14 @@ function buildReportModule(rawTableHtml, headers, bodyRows) {
   const financeRe   = /price|cost|total|amount|value|balance|due|مبلغ|قيمة|سعر|إجمالي|رصيد/i;
 
   let kpiHtml = `<div class="rm-kpi-row"><div class="rm-kpi rm-kpi-count"><div class="rm-kpi-val">${bodyRows.length}</div><div class="rm-kpi-lbl">${countLabel}</div></div>`;
-  Object.entries(numCols).slice(0, 4).forEach(([col, sum]) => {
-    const isFin    = financeRe.test(col);
+  Object.entries(numCols).slice(0, 4).forEach(([col, {sum, count, isPct}]) => {
+    const displayVal = isPct ? (sum / count) : sum;
+    const isFin    = !isPct && financeRe.test(col);
     const lbl      = col.length > 22 ? col.slice(0, 22) + '…' : col;
     const egpBadge = isFin ? ` <span class="rm-kpi-egp">EGP</span>` : '';
-    kpiHtml += `<div class="rm-kpi"><div class="rm-kpi-val">${fmtNum(sum)}${egpBadge}</div><div class="rm-kpi-lbl">${lbl}</div></div>`;
+    const pctBadge = isPct ? `<span style="font-size:12px;color:var(--text3);margin-left:2px">%</span>` : '';
+    const avgLabel = isPct ? ` <span style="font-size:9px;color:var(--text3);display:block;margin-top:1px">${isArabic ? 'متوسط' : 'avg'}</span>` : '';
+    kpiHtml += `<div class="rm-kpi"><div class="rm-kpi-val">${fmtNum(displayVal)}${pctBadge}${egpBadge}</div><div class="rm-kpi-lbl">${lbl}${avgLabel}</div></div>`;
   });
   kpiHtml += '</div>';
 
