@@ -69,7 +69,7 @@ class AIProviderManager:
         key = os.environ.get("GEMINI_API_KEY", "").strip()
         if not key:
             return None
-        model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash-lite")
+        model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
         return {"name": "Gemini", "model": model,
                 "client": OpenAI(api_key=key, base_url=GEMINI_BASE_URL)}
 
