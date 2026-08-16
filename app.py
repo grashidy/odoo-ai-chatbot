@@ -50,9 +50,9 @@ class AIProviderManager:
 
     def __init__(self):
         self.openai    = self._build_openai()    # primary
-        self.primary   = self._build_gemini()    # secondary
-        self.fallback  = self._build_groq()      # tertiary
-        self.cerebras  = self._build_cerebras()  # quaternary (free, generous)
+        self.primary   = None                    # Gemini removed — all models deprecated
+        self.fallback  = self._build_groq()      # secondary
+        self.cerebras  = self._build_cerebras()  # tertiary (free, generous)
         self._log_startup()
 
     # ── Provider builders ────────────────────────────────────────────────────
@@ -79,7 +79,8 @@ class AIProviderManager:
                or (_kf.read_text(encoding="utf-8").strip() if _kf.exists() else ""))
         if not key:
             return None
-        model = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
+        # llama-3.3-70b-versatile: better tool calling, separate quota pool from 8b-instant
+        model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
         return {"name": "Groq", "model": model,
                 "client": OpenAI(api_key=key, base_url=GROQ_BASE_URL)}
 
@@ -146,15 +147,14 @@ class AIProviderManager:
 
     def _log_startup(self):
         logging.warning("══ AI PROVIDER STATUS ══════════════════════════════")
-        for label, p in [("PRIMARY    (OpenAI)  ", self.openai),
-                          ("SECONDARY  (Gemini)  ", self.primary),
-                          ("TERTIARY   (Groq)    ", self.fallback),
-                          ("QUATERNARY (Cerebras)", self.cerebras)]:
+        for label, p in [("PRIMARY   (OpenAI)  ", self.openai),
+                          ("SECONDARY (Groq)    ", self.fallback),
+                          ("TERTIARY  (Cerebras)", self.cerebras)]:
             if p:
                 logging.warning("  %s  model=%-30s  key=✓", label, p["model"])
             else:
                 logging.warning("  %s  NOT CONFIGURED", label)
-        if not any([self.openai, self.primary, self.fallback, self.cerebras]):
+        if not any([self.openai, self.fallback, self.cerebras]):
             logging.warning("  ⚠ CRITICAL: no AI providers configured")
         logging.warning("════════════════════════════════════════════════════")
 
@@ -1365,22 +1365,23 @@ def chat():
             _answered         = False
             messages          = list(base_msgs)
 
-            # ── Phase 1: Tool-calling loop (max 4 rounds) ───────────────────
+            # ── Phase 1: Tool-calling loop (max 4 rounds per provider) ─────
+            # Provider switching is NOT counted as a round — it gets its own
+            # fresh 4-round budget so we don't burn tool rounds on fallback.
             for _round in range(4):
-                if _prov_idx >= len(_providers):
-                    yield f"data: {json.dumps({'type': 'text', 'text': _prov_mgr.user_message('no_providers')})}\n\n"
-                    _answered = True
-                    break
+                # Provider-switching inner loop: try each provider until one accepts
+                while _prov_idx < len(_providers):
+                    _p     = _providers[_prov_idx]
+                    _cl    = _p["client"]
+                    _model = _p["model"]
+                    logging.warning("[%s] Phase1 round=%d prov=%s model=%s",
+                                    _req_id, _round, _p["name"], _model)
 
-                _p     = _providers[_prov_idx]
-                _cl    = _p["client"]
-                _model = _p["model"]
-                logging.warning("[%s] Phase1 round=%d prov=%s model=%s",
-                                _req_id, _round, _p["name"], _model)
+                    resp, err = yield from _ai_call(_cl, _model, messages, _tools)
 
-                resp, err = yield from _ai_call(_cl, _model, messages, _tools)
+                    if err is None:
+                        break  # this provider responded — use it for this round
 
-                if err is not None:
                     cat, can_fallback = _prov_mgr.classify_error(err)
                     logging.warning("[%s] Phase1 err cat=%s fallback=%s: %s",
                                     _req_id, cat, can_fallback, str(err)[:200])
@@ -1390,9 +1391,17 @@ def chat():
                         _sw_msg = f"{_p['name']} error — trying {_np['name']} ({_np['model']})…"
                         yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': _sw_msg}})}\n\n"
                         messages = list(base_msgs)  # clean slate for new provider
-                        continue
-                    yield f"data: {json.dumps({'type': 'text', 'text': _prov_mgr.user_message(cat)})}\n\n"
+                        # do NOT break — continue while-loop to try next provider
+                    else:
+                        yield f"data: {json.dumps({'type': 'text', 'text': _prov_mgr.user_message(cat)})}\n\n"
+                        _answered = True
+                        break
+                else:
+                    # all providers exhausted
+                    yield f"data: {json.dumps({'type': 'text', 'text': _prov_mgr.user_message('no_providers')})}\n\n"
                     _answered = True
+
+                if _answered:
                     break
 
                 msg    = resp.choices[0].message
@@ -1703,7 +1712,7 @@ def health_check():
         "status":      overall,
         "providers":   results,
         "openai_ok":    any(r["status"] == "ok" and r["provider"] == "OpenAI"   for r in results),
-        "gemini_ok":    any(r["status"] == "ok" and r["provider"] == "Gemini"   for r in results),
+        "gemini_ok":    False,   # Gemini removed
         "groq_ok":      any(r["status"] == "ok" and r["provider"] == "Groq"     for r in results),
         "cerebras_ok":  any(r["status"] == "ok" and r["provider"] == "Cerebras" for r in results),
         "working_providers": [r["provider"] for r in results if r["status"] == "ok"],
