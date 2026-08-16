@@ -1637,10 +1637,12 @@ def health_check():
     http_code = 200 if ok_count > 0 else 503
 
     return jsonify({
-        "status":    overall,
-        "providers": results,
-        "primary_ok": any(r["status"] == "ok" and r["provider"] == "Gemini" for r in results),
-        "fallback_ok": any(r["status"] == "ok" and r["provider"] == "Groq" for r in results),
+        "status":      overall,
+        "providers":   results,
+        "openai_ok":   any(r["status"] == "ok" and r["provider"] == "OpenAI"  for r in results),
+        "gemini_ok":   any(r["status"] == "ok" and r["provider"] == "Gemini"  for r in results),
+        "groq_ok":     any(r["status"] == "ok" and r["provider"] == "Groq"    for r in results),
+        "working_providers": [r["provider"] for r in results if r["status"] == "ok"],
     }), http_code
 
 @app.route("/reports-data")
