@@ -1181,10 +1181,18 @@ def chat():
             tool_call_counts      = {}   # tool_name → how many times called this turn
             tool_fail_count       = 0   # consecutive schema-validation failures
             provider_switch_count = 0   # total provider switches — cap at 2 to prevent cycling
+            xml_guard_count       = 0   # times <function= guard fired — cap at 1 retry
+            rate_limit_count      = 0   # non-daily rate limit retries — cap at 2
             answered              = False
 
             for iteration in range(max_iterations):
                 response = None
+                logging.warning(
+                    "AI-ITER %d/%d model=%s has_tool_results=%s prov_sw=%d xml_g=%d rl=%d",
+                    iteration, max_iterations, _ai_model,
+                    any(m.get("role") == "tool" for m in messages),
+                    provider_switch_count, xml_guard_count, rate_limit_count,
+                )
                 # Run Groq call in a thread so we can send SSE keepalive pings
                 # while waiting — Railway drops idle connections after ~60 s
                 _result  = [None]
@@ -1318,7 +1326,12 @@ def chat():
                             answered = True
                             break
                         else:
-                            yield f"data: {json.dumps({'type': 'tool', 'name': 'wait', 'input': {'model': f'Waiting {wait_sec}s for rate limit to reset...'}})}\n\n"
+                            rate_limit_count += 1
+                            if rate_limit_count > 2:
+                                yield f"data: {json.dumps({'type': 'text', 'text': f'⚠️ Rate limit hit {rate_limit_count} times in a row. Please wait a minute before trying again.'})}\n\n"
+                                answered = True
+                                break
+                            yield f"data: {json.dumps({'type': 'tool', 'name': 'wait', 'input': {'model': f'Waiting {wait_sec}s for rate limit to reset... ({rate_limit_count}/2)'}})}\n\n"
                             # Yield pings during wait so Railway doesn't drop the connection
                             elapsed = 0
                             while elapsed < wait_sec:
@@ -1360,6 +1373,10 @@ def chat():
 
                 msg    = response.choices[0].message
                 finish = response.choices[0].finish_reason
+                logging.warning(
+                    "AI-RESP iter=%d finish=%s tool_calls=%d content_len=%d",
+                    iteration, finish, len(msg.tool_calls or []), len(msg.content or ""),
+                )
 
                 # Build assistant message — NEVER include tool_calls key if empty
                 asst_msg = {"role": "assistant", "content": msg.content or ""}
@@ -1383,9 +1400,17 @@ def chat():
 
                     # Guard 1: actual XML function-call syntax leaked into content
                     if "<function=" in text:
-                        logging.warning("iter %d: model leaked <function=> XML syntax, retrying", iteration)
-                        messages.append({"role": "user", "content": "IMPORTANT: Do NOT output function call syntax. Write only the final human-readable answer in the user's language."})
-                        continue
+                        xml_guard_count += 1
+                        logging.warning("iter %d: model leaked <function=> XML syntax (count=%d)", iteration, xml_guard_count)
+                        if xml_guard_count <= 1:
+                            messages.append({"role": "user", "content": "IMPORTANT: Do NOT output function call syntax. Write only the final human-readable answer in the user's language."})
+                            continue
+                        # Fired twice — strip obvious XML syntax and yield whatever remains
+                        text = re.sub(r'<function[^>]*>[\s\S]*?</function[^>]*>', '', text).strip()
+                        text = re.sub(r'</?function[^>]*>', '', text).strip()
+                        if not text:
+                            text = "I was unable to generate a clean response. Please rephrase your question."
+                        # fall through to yield below
 
                     # Guard 2: model returned text (no tool calls) on a data question
                     # when tools were available — re-prompt ONCE to force tool use.
