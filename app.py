@@ -1346,7 +1346,8 @@ def chat():
                     if can_fallback and _prov_idx + 1 < len(_providers):
                         _prov_idx += 1
                         _np = _providers[_prov_idx]
-                        yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': f'{_p[\"name\"]} error — trying {_np[\"name\"]} ({_np[\"model\"]})…'}})}\n\n"
+                        _sw_msg = f"{_p['name']} error — trying {_np['name']} ({_np['model']})…"
+                        yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': _sw_msg}})}\n\n"
                         messages = list(base_msgs)  # clean slate for new provider
                         continue
                     yield f"data: {json.dumps({'type': 'text', 'text': _prov_mgr.user_message(cat)})}\n\n"
@@ -1531,7 +1532,8 @@ def chat():
                                         _req_id, cat2, str(err2)[:200])
                         if can_fb2 and _syn_idx + 1 < len(_providers):
                             _np2 = _providers[_syn_idx + 1]
-                            yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': f'Synthesis failed on {_sp[\"name\"]} — trying {_np2[\"name\"]}…'}})}\n\n"
+                            _sw2_msg = f"Synthesis failed on {_sp['name']} — trying {_np2['name']}…"
+                            yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': _sw2_msg}})}\n\n"
                             continue
                         yield f"data: {json.dumps({'type': 'text', 'text': _prov_mgr.user_message(cat2)})}\n\n"
                         _answered = True
