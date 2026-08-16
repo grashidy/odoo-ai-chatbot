@@ -16,47 +16,138 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 # Global socket timeout prevents xmlrpc calls from hanging indefinitely
 socket.setdefaulttimeout(55)
 
-# ── AI provider: Gemini (primary) with Groq fallback ───────────────────────────
-GEMINI_API_KEY  = os.environ.get("GEMINI_API_KEY", "").strip()
+# ── AI Provider Manager ────────────────────────────────────────────────────────
+# Models are fully configurable via Railway environment variables.
+# Never hard-code model names — set GEMINI_MODEL / GROQ_MODEL in Railway Variables.
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+GROQ_BASE_URL   = "https://api.groq.com/openai/v1"
 
-# Tried in order on 404 — each is tried before falling back to Groq
-GEMINI_MODEL_CHAIN = [
-    "gemini-2.5-flash",       # newest, highest quality
-    "gemini-2.0-flash-lite",  # stable lightweight
-    "gemini-1.5-flash-8b",    # legacy small — almost always available
-    "gemini-1.5-flash",       # legacy full — last resort
-]
-AI_MODEL = GEMINI_MODEL_CHAIN[0]
+class AIProviderManager:
+    """
+    Centralized AI provider with automatic Gemini → Groq fallback.
 
-# Groq fallback (free tier: 500K tokens/day)
-_key_file = Path(__file__).parent / ".groq_key"
-DEFAULT_GROQ_KEY = (
-    os.environ.get("GROQ_API_KEY", "").strip()
-    or (_key_file.read_text(encoding="utf-8").strip() if _key_file.exists() else "")
-)
+    Decision table:
+      401 / 403  →  auth/config error        →  fallback immediately
+      404        →  model unavailable         →  fallback immediately
+      429        →  rate limit / daily quota  →  fallback immediately
+      5xx        →  provider server error     →  fallback immediately
+      timeout    →  request timed out         →  fallback immediately
+      400        →  bad request (code bug)    →  NO fallback, show error
+    """
 
+    _USER_MESSAGES = {
+        "auth_error":        "⚠️ AI configuration error. Please verify GEMINI_API_KEY / GROQ_API_KEY in Railway Variables.",
+        "model_unavailable": "⚠️ The requested AI model is unavailable. Trying backup provider…",
+        "rate_limit":        "⚠️ AI rate limit reached. Please wait a moment and try again.",
+        "daily_quota":       "⚠️ Daily AI quota exhausted on all providers. Limits reset at midnight UTC.",
+        "server_error":      "⚠️ AI service temporarily unavailable. Please try again shortly.",
+        "timeout":           "⚠️ AI request timed out. Please try again.",
+        "bad_request":       "⚠️ The AI received an invalid request. Please rephrase your question.",
+        "no_providers":      "⚠️ No AI providers configured. Set GEMINI_API_KEY or GROQ_API_KEY in Railway Variables.",
+        "unknown_error":     "⚠️ AI service temporarily unavailable. Please try again shortly.",
+    }
+
+    def __init__(self):
+        self.primary  = self._build_gemini()
+        self.fallback = self._build_groq()
+        self._log_startup()
+
+    # ── Provider builders ────────────────────────────────────────────────────
+
+    def _build_gemini(self):
+        key = os.environ.get("GEMINI_API_KEY", "").strip()
+        if not key:
+            return None
+        model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+        return {"name": "Gemini", "model": model,
+                "client": OpenAI(api_key=key, base_url=GEMINI_BASE_URL)}
+
+    def _build_groq(self):
+        _kf = Path(__file__).parent / ".groq_key"
+        key = (os.environ.get("GROQ_API_KEY", "").strip()
+               or (_kf.read_text(encoding="utf-8").strip() if _kf.exists() else ""))
+        if not key:
+            return None
+        model = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
+        return {"name": "Groq", "model": model,
+                "client": OpenAI(api_key=key, base_url=GROQ_BASE_URL)}
+
+    # ── Error classification ─────────────────────────────────────────────────
+
+    def classify_error(self, exc):
+        """Returns (category: str, should_fallback: bool)."""
+        msg = str(exc)
+        if "401" in msg or "403" in msg:
+            return "auth_error", True
+        if "404" in msg:
+            return "model_unavailable", True
+        if "429" in msg or "rate_limit" in msg.lower():
+            if any(x in msg.lower() for x in ("per day", "daily", "exceeded", "tpd")):
+                return "daily_quota", True
+            return "rate_limit", True
+        if any(f"{c}" in msg for c in (500, 502, 503, 504)):
+            return "server_error", True
+        if "timeout" in msg.lower() or "timed out" in msg.lower():
+            return "timeout", True
+        if "400" in msg:
+            return "bad_request", False       # code/request bug — no fallback
+        return "unknown_error", True
+
+    def user_message(self, category):
+        return self._USER_MESSAGES.get(category, self._USER_MESSAGES["unknown_error"])
+
+    # ── Provider iteration ───────────────────────────────────────────────────
+
+    def providers(self, override_key=None):
+        """Yield configured providers in order: primary first, then fallback."""
+        plist = []
+        if override_key:
+            plist.append({"name": "Custom", "model": "llama-3.1-8b-instant",
+                          "client": OpenAI(api_key=override_key, base_url=GROQ_BASE_URL)})
+        else:
+            if self.primary:
+                plist.append(self.primary)
+            if self.fallback:
+                plist.append(self.fallback)
+        return plist
+
+    def best_client(self, override_key=None):
+        """Return (client, model) of the first available provider — for simple one-shot calls."""
+        for p in self.providers(override_key):
+            return p["client"], p["model"]
+        return None, None
+
+    # ── Startup log ─────────────────────────────────────────────────────────
+
+    def _log_startup(self):
+        logging.warning("══ AI PROVIDER STATUS ══════════════════════════════")
+        for label, p in [("PRIMARY  (Gemini)", self.primary),
+                          ("FALLBACK (Groq)  ", self.fallback)]:
+            if p:
+                logging.warning("  %s  model=%-30s  key=✓", label, p["model"])
+            else:
+                logging.warning("  %s  NOT CONFIGURED", label)
+        if not self.primary and not self.fallback:
+            logging.warning("  ⚠ CRITICAL: no AI providers — set GEMINI_API_KEY or GROQ_API_KEY")
+        logging.warning("════════════════════════════════════════════════════")
+
+
+# Module-level singleton — used everywhere
+_prov_mgr = AIProviderManager()
+
+# Thin backwards-compat wrappers (used by BOQ import + sync AI helper)
 def _make_chat_client(override_key=None):
-    """Gemini first (free, high quota), Groq as fallback."""
-    if GEMINI_API_KEY:
-        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), GEMINI_MODEL_CHAIN[0]
-    if DEFAULT_GROQ_KEY:
-        return OpenAI(api_key=DEFAULT_GROQ_KEY, base_url="https://api.groq.com/openai/v1"), "llama-3.3-70b-versatile"
-    if override_key:
-        return OpenAI(api_key=override_key, base_url="https://api.groq.com/openai/v1"), "llama-3.3-70b-versatile"
-    return None, None
+    return _prov_mgr.best_client(override_key)
 
 def _make_groq_client():
-    """Returns a Groq client (used as fallback when all Gemini models fail)."""
-    if DEFAULT_GROQ_KEY:
-        return OpenAI(api_key=DEFAULT_GROQ_KEY, base_url="https://api.groq.com/openai/v1"), "llama-3.3-70b-versatile"
-    return None, None
+    p = _prov_mgr.fallback
+    return (p["client"], p["model"]) if p else (None, None)
 
 def _make_gemini_client(model=None):
-    """Returns a Gemini client with the specified model (default: first in chain)."""
-    if GEMINI_API_KEY:
-        return OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL), (model or GEMINI_MODEL_CHAIN[0])
-    return None, None
+    p = _prov_mgr.primary
+    if not p:
+        return None, None
+    return p["client"], (model or p["model"])
 
 # ── Odoo connection ────────────────────────────────────────────────────────────
 # Set ODOO_API_KEY as a Railway environment variable (Variables tab) — never hardcode it.
@@ -1172,432 +1263,283 @@ def index():
 @app.route("/chat", methods=["POST"])
 @app.route("/ai/chat", methods=["POST"])
 def chat():
-    data = request.json
-    history = data.get("messages", [])
+    data         = request.json
+    history      = data.get("messages", [])
     override_key = data.get("api_key", "").strip() or None
-    mode = data.get("mode", "assistant")          # "assistant" or "implementer"
-    client, _ai_model = _make_chat_client(override_key)
+    mode         = data.get("mode", "assistant")     # "assistant" or "implementer"
 
-    if not client:
-        return jsonify({"error": "AI API key is required. Set GEMINI_API_KEY in Railway Variables."}), 400
+    _providers = _prov_mgr.providers(override_key)
+    if not _providers:
+        return jsonify({"error": "No AI provider configured. Set GEMINI_API_KEY or GROQ_API_KEY in Railway Variables."}), 400
 
-    # Route to the correct system prompt and tool set based on mode
     _system_prompt = get_implementer_system_prompt() if mode == "implementer" else get_system_prompt()
     _tools         = IMPLEMENTER_TOOLS               if mode == "implementer" else TOOLS
     _tool_runner   = _run_implementer_tool            if mode == "implementer" else run_tool
 
     def generate():
-        nonlocal client, _ai_model
+        _req_id = f"req_{int(time.time()*1000) % 1000000}"
         try:
-            # Keep only last 4 messages from history to limit token usage
-            recent = history[-4:] if len(history) > 4 else history
-            messages = [{"role": "system", "content": _system_prompt}]
+            # ── Build base messages ─────────────────────────────────────────
+            recent    = history[-4:] if len(history) > 4 else history
+            base_msgs = [{"role": "system", "content": _system_prompt}]
             for m in recent:
-                messages.append({"role": m["role"], "content": m.get("content") or ""})
+                base_msgs.append({"role": m["role"], "content": m.get("content") or ""})
 
-            max_iterations        = 10   # needs up to: 4 Gemini model chain tries + Groq switch + tool call + synthesis + retries
-            tool_call_counts      = {}   # tool_name → how many times called this turn
-            tool_fail_count       = 0   # consecutive schema-validation failures
-            provider_switch_count = 0   # total provider switches — cap at 2 to prevent cycling
-            xml_guard_count       = 0   # times <function= guard fired — cap at 1 retry
-            rate_limit_count      = 0   # non-daily rate limit retries — cap at 2
-            answered              = False
-
-            for iteration in range(max_iterations):
-                response = None
-                logging.warning(
-                    "AI-ITER %d/%d model=%s has_tool_results=%s prov_sw=%d xml_g=%d rl=%d",
-                    iteration, max_iterations, _ai_model,
-                    any(m.get("role") == "tool" for m in messages),
-                    provider_switch_count, xml_guard_count, rate_limit_count,
-                )
-                # Run Groq call in a thread so we can send SSE keepalive pings
-                # while waiting — Railway drops idle connections after ~60 s
-                _result  = [None]
-                _api_err = [None]
-                _done    = threading.Event()
-
-                # Synthesis mode: when tool results exist in history, strip the entire
-                # tool-call conversation (role:assistant+tool_calls and role:tool messages)
-                # before sending to Gemini.
-                #
-                # ROOT CAUSE: Gemini's OpenAI-compatible endpoint infers tool schemas from
-                # role:assistant(tool_calls) + role:tool history, and continues calling tools
-                # even when tools= is omitted from the request. Simply dropping tools= is NOT
-                # enough — Gemini reconstructs the schema from the conversation history and
-                # keeps looping. The only reliable fix is to send a CLEAN message history
-                # with the tool results injected as plain user text.
-                _has_tool_results = any(m.get("role") == "tool" for m in messages)
-                def _groq_call():
+            # ── Threaded API call helper ────────────────────────────────────
+            # Generator: yields SSE pings while the call runs; returns (resp, err).
+            # Caller uses: resp, err = yield from _ai_call(cl, model, msgs, tools)
+            def _ai_call(cl, model, msgs, tools=None):
+                _r = [None]; _e = [None]; _ev = threading.Event()
+                def _worker():
                     try:
-                        if _has_tool_results:
-                            # Rebuild messages without any tool-call history.
-                            # Collect tool result chunks; skip assistant(tool_calls) messages
-                            # and the old "The Odoo data above" injected marker.
-                            _clean = []
-                            _chunks = []
-                            for _m in messages:
-                                _r = _m.get("role")
-                                _c = _m.get("content") or ""
-                                if _r == "tool":
-                                    _chunks.append(_c)
-                                elif _r == "assistant" and _m.get("tool_calls"):
-                                    pass  # omit — carries implicit tool schema
-                                elif _r == "user" and _c.startswith("The Odoo data above"):
-                                    pass  # omit — old injected marker (superseded below)
-                                else:
-                                    _clean.append(_m)
-                            if _chunks:
-                                _clean.append({
-                                    "role": "user",
-                                    "content": (
-                                        "Odoo data retrieved:\n\n" +
-                                        "\n\n---\n\n".join(_chunks) +
-                                        "\n\nAnswer the original question above. "
-                                        "Use markdown tables. Reply in the same language as the question. "
-                                        "Do NOT output any function call syntax."
-                                    )
-                                })
-                            call_kw = dict(
-                                model=_ai_model,
-                                messages=_clean,
-                                max_tokens=1800,
-                                temperature=0.1,
-                            )
-                        else:
-                            call_kw = dict(
-                                model=_ai_model,
-                                messages=messages,
-                                tools=_tools,
-                                tool_choice="auto",
-                                max_tokens=1800,
-                                temperature=0.1,
-                            )
-                        _result[0] = client.chat.completions.create(**call_kw)
-                    except Exception as e:
-                        _api_err[0] = e
+                        kw = dict(model=model, messages=msgs,
+                                  max_tokens=1800, temperature=0.1)
+                        if tools:
+                            kw["tools"]       = tools
+                            kw["tool_choice"] = "auto"
+                        _r[0] = cl.chat.completions.create(**kw)
+                    except Exception as exc:
+                        _e[0] = exc
                     finally:
-                        _done.set()
-
-                threading.Thread(target=_groq_call, daemon=True).start()
-                # Ping every 20 s so Railway doesn't kill the idle connection
-                while not _done.wait(timeout=20):
+                        _ev.set()
+                threading.Thread(target=_worker, daemon=True).start()
+                while not _ev.wait(timeout=20):
                     yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+                return _r[0], _e[0]
 
-                response = _result[0]
-                api_err  = _api_err[0]
-                try:
-                    if api_err is not None:
-                        raise api_err
-                except Exception as api_err:
-                    err_msg = str(api_err)
-                    is_rate      = "rate_limit" in err_msg.lower() or "429" in err_msg
-                    is_model_404 = (
-                        "404" in err_msg and (
-                            "no longer available" in err_msg or
-                            "not found"           in err_msg.lower() or
-                            "does not exist"      in err_msg.lower() or
-                            "not available"       in err_msg.lower() or
-                            "model"               in err_msg.lower()
-                        )
-                    )
-                    is_tool_fail = "tool_use_failed" in err_msg or "tool call validation" in err_msg.lower()
-                    if is_model_404:
-                        is_gemini = "generativelanguage" in str(getattr(client, 'base_url', ''))
-                        if is_gemini:
-                            # Try the next model in the Gemini chain before falling back to Groq
-                            try:
-                                _next_idx = GEMINI_MODEL_CHAIN.index(_ai_model) + 1
-                            except ValueError:
-                                _next_idx = len(GEMINI_MODEL_CHAIN)
-                            if _next_idx < len(GEMINI_MODEL_CHAIN):
-                                _ai_model = GEMINI_MODEL_CHAIN[_next_idx]
-                                logging.warning("Gemini 404 — trying next model in chain: %s", _ai_model)
-                                yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': f'Model unavailable — trying {_ai_model}…'}})}\n\n"
-                                continue  # retry with next Gemini model (no provider switch counter)
-                            # All Gemini models exhausted — fall back to Groq
-                            fallback_c, fallback_m = _make_groq_client()
-                        else:
-                            # Groq gave 404 — try Gemini (reset to first in chain)
-                            fallback_c, fallback_m = _make_gemini_client(GEMINI_MODEL_CHAIN[0])
-                        if fallback_c and provider_switch_count < 2:
-                            provider_switch_count += 1
-                            client, _ai_model = fallback_c, fallback_m
-                            yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': f'Switching provider to {fallback_m}…'}})}\n\n"
-                            continue
-                        # No fallback available — show diagnostic
-                        _cur_model = _ai_model
-                        yield f"data: {json.dumps({'type': 'text', 'text': f'❌ All AI models unavailable (last tried: {_cur_model}). Please check: (1) GEMINI_API_KEY is set in Railway Variables, (2) Optionally set GROQ_API_KEY as backup at groq.com/keys'})}\n\n"
-                        answered = True
-                        break
-                    if is_rate:
-                        # Parse Groq wait time — handles "5s", "1m5s", "1m5.000s"
-                        _m_min = re.search(r'try again in (\d+)m([\d.]+)s', err_msg, re.IGNORECASE)
-                        _m_sec = re.search(r'try again in ([\d.]+)s', err_msg, re.IGNORECASE)
-                        if _m_min:
-                            wait_sec = int(_m_min.group(1)) * 60 + int(float(_m_min.group(2))) + 2
-                        elif _m_sec:
-                            wait_sec = int(float(_m_sec.group(1))) + 2
-                        else:
-                            wait_sec = 65
-                        _is_daily = (
-                            "per day" in err_msg.lower() or
-                            "tpd" in err_msg.lower() or
-                            "daily" in err_msg.lower() or
-                            "exceeded" in err_msg.lower() or
-                            wait_sec > 300
-                        )
-                        if _is_daily:
-                            # Daily quota hit — switch provider once; if both exhausted, stop
-                            is_groq = "groq.com" in str(getattr(client, 'base_url', ''))
-                            if is_groq:
-                                fallback_c, fallback_m = _make_gemini_client()
-                            else:
-                                fallback_c, fallback_m = _make_groq_client()
-                            if fallback_c and provider_switch_count < 2:
-                                provider_switch_count += 1
-                                client, _ai_model = fallback_c, fallback_m
-                                yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': f'Daily quota reached — switching to {fallback_m}…'}})}\n\n"
-                                continue  # retry with the other provider
-                            yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ Daily API quota exhausted on all providers. Please wait until midnight (quota resets daily) or add a new API key in Settings.'})}\n\n"
-                            answered = True
-                            break
-                        else:
-                            rate_limit_count += 1
-                            if rate_limit_count > 2:
-                                yield f"data: {json.dumps({'type': 'text', 'text': f'⚠️ Rate limit hit {rate_limit_count} times in a row. Please wait a minute before trying again.'})}\n\n"
-                                answered = True
-                                break
-                            yield f"data: {json.dumps({'type': 'tool', 'name': 'wait', 'input': {'model': f'Waiting {wait_sec}s for rate limit to reset... ({rate_limit_count}/2)'}})}\n\n"
-                            # Yield pings during wait so Railway doesn't drop the connection
-                            elapsed = 0
-                            while elapsed < wait_sec:
-                                chunk = min(20, wait_sec - elapsed)
-                                time.sleep(chunk)
-                                elapsed += chunk
-                                if elapsed < wait_sec:
-                                    yield f"data: {json.dumps({'type': 'ping'})}\n\n"
-                            continue  # retry this iteration
-                    elif is_tool_fail:
-                        tool_fail_count += 1
-                        logging.warning("tool_use_failed #%d: %s", tool_fail_count, err_msg[:400])
-                        if tool_fail_count >= 2:
-                            yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ The AI model repeatedly sent invalid tool parameters. Please rephrase your question or try again.'})}\n\n"
-                            answered = True
-                            break
-                        # Inject correction hint with correct type guidance and retry
-                        schema_hint = (
-                            "Your last tool call was rejected because a parameter had the wrong type. "
-                            "Fix the types and retry: "
-                            "fields must be a JSON array like [\"name\",\"state\"]; "
-                            "domain must be a JSON array like [] or [[\"state\",\"=\",\"draft\"]]; "
-                            "groupby must be a JSON array like [\"project_id\"]; "
-                            "aggregates must be a JSON array like [\"boq_cost:sum\"] or []."
-                        )
-                        messages.append({"role": "user", "content": schema_hint})
+            # ── State ───────────────────────────────────────────────────────
+            _prov_idx         = 0     # current index into _providers list
+            _tool_call_counts = {}    # call_key → count (cross-round loop detection)
+            _tool_chunks      = []    # accumulated raw tool results for Phase 2 synthesis
+            _xml_guard_count  = 0
+            _answered         = False
+            messages          = list(base_msgs)
+
+            # ── Phase 1: Tool-calling loop (max 4 rounds) ───────────────────
+            for _round in range(4):
+                if _prov_idx >= len(_providers):
+                    yield f"data: {json.dumps({'type': 'text', 'text': _prov_mgr.user_message('no_providers')})}\n\n"
+                    _answered = True
+                    break
+
+                _p     = _providers[_prov_idx]
+                _cl    = _p["client"]
+                _model = _p["model"]
+                logging.warning("[%s] Phase1 round=%d prov=%s model=%s",
+                                _req_id, _round, _p["name"], _model)
+
+                resp, err = yield from _ai_call(_cl, _model, messages, _tools)
+
+                if err is not None:
+                    cat, can_fallback = _prov_mgr.classify_error(err)
+                    logging.warning("[%s] Phase1 err cat=%s fallback=%s: %s",
+                                    _req_id, cat, can_fallback, str(err)[:200])
+                    if can_fallback and _prov_idx + 1 < len(_providers):
+                        _prov_idx += 1
+                        _np = _providers[_prov_idx]
+                        yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': f'{_p[\"name\"]} error — trying {_np[\"name\"]} ({_np[\"model\"]})…'}})}\n\n"
+                        messages = list(base_msgs)  # clean slate for new provider
                         continue
-                    else:
-                        yield f"data: {json.dumps({'type': 'text', 'text': f'❌ API Error: {err_msg[:250]}'})}\n\n"
-                        answered = True
+                    yield f"data: {json.dumps({'type': 'text', 'text': _prov_mgr.user_message(cat)})}\n\n"
+                    _answered = True
                     break
 
-                if response is None:
-                    yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ No response from AI. Please try again.'})}\n\n"
-                    answered = True
-                    break
+                msg    = resp.choices[0].message
+                finish = resp.choices[0].finish_reason
+                logging.warning("[%s] Phase1 round=%d finish=%s tools=%d content=%d",
+                                _req_id, _round, finish,
+                                len(msg.tool_calls or []), len(msg.content or ""))
 
-                tool_fail_count = 0  # reset on successful API call
-
-                msg    = response.choices[0].message
-                finish = response.choices[0].finish_reason
-                logging.warning(
-                    "AI-RESP iter=%d finish=%s tool_calls=%d content_len=%d",
-                    iteration, finish, len(msg.tool_calls or []), len(msg.content or ""),
-                )
-
-                # Build assistant message — NEVER include tool_calls key if empty
-                asst_msg = {"role": "assistant", "content": msg.content or ""}
-                if msg.tool_calls:
-                    asst_msg["tool_calls"] = [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments
-                            }
-                        }
-                        for tc in msg.tool_calls
-                    ]
-                messages.append(asst_msg)
-
-                # No tool calls → final text answer
-                if finish in ("stop", "end_turn") or not msg.tool_calls:
+                # Direct text answer — no tools needed
+                if not msg.tool_calls:
                     text = msg.content or ""
 
-                    # Guard 1: actual XML function-call syntax leaked into content
+                    # Guard: model leaked <function= XML syntax into content
                     if "<function=" in text:
-                        xml_guard_count += 1
-                        logging.warning("iter %d: model leaked <function=> XML syntax (count=%d)", iteration, xml_guard_count)
-                        if xml_guard_count <= 1:
-                            messages.append({"role": "user", "content": "IMPORTANT: Do NOT output function call syntax. Write only the final human-readable answer in the user's language."})
+                        _xml_guard_count += 1
+                        logging.warning("[%s] XML leak round=%d count=%d",
+                                        _req_id, _round, _xml_guard_count)
+                        if _xml_guard_count <= 1:
+                            messages.append({"role": "assistant", "content": text})
+                            messages.append({"role": "user", "content":
+                                "IMPORTANT: Do NOT output function call syntax. "
+                                "Write only the final human-readable answer in the user's language."})
                             continue
-                        # Fired twice — strip obvious XML syntax and yield whatever remains
                         text = re.sub(r'<function[^>]*>[\s\S]*?</function[^>]*>', '', text).strip()
                         text = re.sub(r'</?function[^>]*>', '', text).strip()
                         if not text:
-                            text = "I was unable to generate a clean response. Please rephrase your question."
-                        # fall through to yield below
+                            text = _prov_mgr.user_message("bad_request")
 
-                    # Guard 2: model returned text (no tool calls) on a data question
-                    # when tools were available — re-prompt ONCE to force tool use.
-                    # (Gemini sometimes narrates "سأستخدم odoo_search…" instead of calling)
-                    no_tool_results_yet = not any(m.get("role") == "tool" for m in messages)
-                    if no_tool_results_yet and iteration == 0 and not text.strip():
-                        # Empty response on first try — force a tool call
-                        logging.warning("iter 0: empty response, forcing tool call")
-                        messages.append({"role": "user", "content": "Call the appropriate Odoo tool now to retrieve the data. Do not answer from memory."})
+                    # Guard: empty first response — prompt for tool use
+                    if not text and _round == 0 and not _tool_chunks:
+                        logging.warning("[%s] Empty response round 0, prompting tool use", _req_id)
+                        messages.append({"role": "assistant", "content": ""})
+                        messages.append({"role": "user", "content":
+                            "Call the appropriate Odoo tool now to retrieve the data. "
+                            "Do not answer from memory."})
                         continue
 
-                    # Yield whatever the model returned (refusal, answer, or plan text)
                     if not text:
-                        text = "I was unable to generate a response. Please try again."
+                        text = _prov_mgr.user_message("unknown_error")
                     yield f"data: {json.dumps({'type': 'text', 'text': text})}\n\n"
-                    answered = True
+                    _answered = True
                     break
 
-                # ── Parse args + deduplicate within this batch ─────────────────
-                # If the AI requests the same (tool, model) more than once in a
-                # single response, only execute the FIRST — skip the rest.
-                _seen_keys = set()
-                _batch = []   # (tc, args, call_key, is_dup)
-                for tc in msg.tool_calls:
-                    try:
-                        args = json.loads(tc.function.arguments)
-                    except Exception:
-                        args = {}
-                    _model_arg = args.get("model", "") if isinstance(args, dict) else ""
-                    _call_key  = f"{tc.function.name}:{_model_arg}"
-                    is_dup = _call_key in _seen_keys
-                    _seen_keys.add(_call_key)
-                    _batch.append((tc, args, _call_key, is_dup))
+                # Build assistant message with tool calls
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": [
+                        {"id": tc.id, "type": "function",
+                         "function": {"name": tc.function.name,
+                                      "arguments": tc.function.arguments}}
+                        for tc in msg.tool_calls
+                    ]
+                })
 
-                # Notify client and count only real (non-dup) calls
-                for tc, args, _call_key, is_dup in _batch:
+                # Dedup within batch
+                _seen_keys = set()
+                _batch     = []
+                for tc in msg.tool_calls:
+                    try:    args = json.loads(tc.function.arguments)
+                    except: args = {}
+                    _k = f"{tc.function.name}:{args.get('model','') if isinstance(args, dict) else ''}"
+                    _batch.append((tc, args, _k, _k in _seen_keys))
+                    _seen_keys.add(_k)
+
+                # Cross-round loop: same key seen in a prior round
+                _loop = any(_tool_call_counts.get(k, 0) >= 1
+                            for _, _, k, d in _batch if not d)
+
+                # Notify client + count unique calls
+                for tc, args, k, is_dup in _batch:
                     if not is_dup:
                         yield f"data: {json.dumps({'type': 'tool', 'name': tc.function.name, 'input': args})}\n\n"
-                        tool_call_counts[_call_key] = tool_call_counts.get(_call_key, 0) + 1
-                    else:
-                        logging.info("Deduped duplicate tool call: %s", _call_key)
+                        _tool_call_counts[k] = _tool_call_counts.get(k, 0) + 1
 
-                # Cross-iteration loop = same (tool, model) called in two separate turns
-                loop_detected = any(v >= 2 for v in tool_call_counts.values())
+                # Execute all non-dup tools in parallel
+                _tres   = {}
+                _t_lock = threading.Lock()
+                _pend   = [sum(1 for _, _, _, d in _batch if not d)]
+                _all    = threading.Event()
+                if _pend[0] == 0:
+                    _all.set()
 
-                # ── Execute all non-dup tools in PARALLEL ──────────────────────
-                _tool_results = {}   # tc.id → result JSON string
-                _t_lock   = threading.Lock()
-                _pending  = [sum(1 for _, _, _, d in _batch if not d)]
-                _all_done = threading.Event()
-                if _pending[0] == 0:
-                    _all_done.set()
-
-                def _run_one(n, a, tid):
-                    try:
-                        res = _tool_runner(n, a)
-                    except Exception as _te:
-                        res = json.dumps({"error": str(_te)})
+                def _do_tool(name, a, tid, _tres=_tres, _t_lock=_t_lock,
+                             _pend=_pend, _all=_all):
+                    try:   res = _tool_runner(name, a)
+                    except Exception as _te: res = json.dumps({"error": str(_te)})
                     with _t_lock:
-                        _tool_results[tid] = res
-                        _pending[0] -= 1
-                        if _pending[0] == 0:
-                            _all_done.set()
+                        _tres[tid] = res
+                        _pend[0] -= 1
+                        if _pend[0] == 0:
+                            _all.set()
 
-                for tc, args, _call_key, is_dup in _batch:
+                for tc, args, k, is_dup in _batch:
                     if not is_dup:
-                        threading.Thread(target=_run_one,
+                        threading.Thread(target=_do_tool,
                                          args=(tc.function.name, args, tc.id),
                                          daemon=True).start()
 
-                # Wait for all parallel calls (up to 45 s), SSE ping every 5 s
-                _waited = 0
-                while _waited < 45 and not _all_done.is_set():
-                    _all_done.wait(timeout=5)
-                    _waited += 5
-                    if not _all_done.is_set() and _waited < 45:
+                # Wait up to 45 s; ping every 5 s
+                _w = 0
+                while _w < 45 and not _all.is_set():
+                    _all.wait(timeout=5); _w += 5
+                    if not _all.is_set() and _w < 45:
                         yield f"data: {json.dumps({'type': 'ping'})}\n\n"
 
-                # Build one tool-result message per tool_call_id the assistant sent
-                for tc, args, _call_key, is_dup in _batch:
+                # Append tool results to messages + accumulate for synthesis
+                for tc, args, k, is_dup in _batch:
                     if is_dup:
-                        content = json.dumps({"note": "duplicate query skipped — reuse the result already returned for this model"})
+                        c = json.dumps({"note": "duplicate query skipped — same result applies"})
                     else:
-                        content = _tool_results.get(tc.id)
-                        if not content:
-                            content = json.dumps({"error": "Odoo query timed out after 45s. Try a simpler query."})
-                            logging.warning("Tool %s timed out after 45 s", tc.function.name)
-                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
+                        c = _tres.get(tc.id)
+                        if not c:
+                            c = json.dumps({"error": "Tool timed out after 45 s."})
+                            logging.warning("[%s] Tool %s timed out", _req_id, tc.function.name)
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": c})
+                    _tool_chunks.append(c)
 
-                # Inject "answer now" so the next iteration produces text, not more tool calls
-                messages.append({
-                    "role": "user",
-                    "content": "The Odoo data above has been retrieved. Give the final answer now in the same language as the original question. Use markdown tables. Do NOT output any function call syntax or tool invocations — just the answer."
-                })
-
-                if loop_detected:
-                    _fr = [None, None]; _fe = threading.Event()
-                    def _final_call():
-                        # Same clean-history approach as synthesis mode:
-                        # strip tool-call history so Gemini can't infer tool schemas.
-                        _fc_clean = []
-                        _fc_chunks = []
-                        for _m in messages:
-                            _r = _m.get("role")
-                            _c = _m.get("content") or ""
-                            if _r == "tool":
-                                _fc_chunks.append(_c)
-                            elif _r == "assistant" and _m.get("tool_calls"):
-                                pass
-                            elif _r == "user" and _c.startswith("The Odoo data above"):
-                                pass
-                            else:
-                                _fc_clean.append(_m)
-                        if _fc_chunks:
-                            _fc_clean.append({
-                                "role": "user",
-                                "content": (
-                                    "Odoo data retrieved:\n\n" +
-                                    "\n\n---\n\n".join(_fc_chunks) +
-                                    "\n\nAnswer the original question above. "
-                                    "Use markdown tables. Reply in the same language as the question."
-                                )
-                            })
-                        try:
-                            _fr[0] = client.chat.completions.create(
-                                model=_ai_model,
-                                messages=_fc_clean,
-                                max_tokens=1800,
-                                temperature=0.1,
-                            )
-                        except Exception as _fce:
-                            _fr[1] = str(_fce)
-                        finally:
-                            _fe.set()
-                    threading.Thread(target=_final_call, daemon=True).start()
-                    while not _fe.wait(timeout=30):
-                        yield f"data: {json.dumps({'type': 'ping'})}\n\n"
-                    if _fr[0]:
-                        text = _fr[0].choices[0].message.content or "⚠️ Empty response. Please try again."
-                    elif _fr[1]:
-                        text = f"⚠️ AI Error: {_fr[1][:300]}"
-                    else:
-                        text = "⚠️ No response received. Please try again."
-                    yield f"data: {json.dumps({'type': 'text', 'text': text})}\n\n"
-                    answered = True
+                # If loop detected, skip next round and go straight to Phase 2
+                if _loop:
+                    logging.warning("[%s] Tool loop detected round=%d — forcing Phase 2",
+                                    _req_id, _round)
                     break
 
-            # Fallback: loop exhausted all iterations without producing an answer
-            if not answered:
-                yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ Could not complete the request after several attempts. Please rephrase and try again.'})}\n\n"
+                # Inject synthesis hint; if AI responds with text on next round → done
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "The Odoo data above has been retrieved. "
+                        "Give the final answer now in the same language as the original question. "
+                        "Use markdown tables. Do NOT output any function call syntax."
+                    )
+                })
+                # Continue → model may answer directly next round or call more tools
+
+            # ── Phase 2: Synthesis with clean history ───────────────────────
+            # Runs only when Phase 1 collected tool results but didn't produce a text answer.
+            if not _answered and _tool_chunks:
+                # Strip tool-call metadata: Gemini re-infers tool schemas from history,
+                # so sending clean messages is the only reliable way to stop it looping.
+                _clean = []
+                for _m in messages:
+                    _mr = _m.get("role"); _mc = _m.get("content") or ""
+                    if _mr == "tool":
+                        pass  # collected in _tool_chunks
+                    elif _mr == "assistant" and _m.get("tool_calls"):
+                        pass  # omit — carries implicit schema
+                    elif _mr == "user" and (
+                        _mc.startswith("The Odoo data above") or
+                        _mc.startswith("Call the appropriate Odoo tool")
+                    ):
+                        pass  # omit injected prompts
+                    else:
+                        _clean.append(_m)
+
+                _clean.append({
+                    "role": "user",
+                    "content": (
+                        "Odoo data retrieved:\n\n" +
+                        "\n\n---\n\n".join(_tool_chunks) +
+                        "\n\nAnswer the original question above. "
+                        "Use markdown tables. Reply in the same language as the question. "
+                        "Do NOT output any function call syntax or tool invocations — just the answer."
+                    )
+                })
+
+                # Try each provider starting from whichever is still alive
+                for _syn_idx in range(_prov_idx, len(_providers)):
+                    _sp    = _providers[_syn_idx]
+                    logging.warning("[%s] Phase2 attempt=%d prov=%s model=%s msgs=%d",
+                                    _req_id, _syn_idx, _sp["name"], _sp["model"], len(_clean))
+
+                    resp2, err2 = yield from _ai_call(_sp["client"], _sp["model"], _clean)
+
+                    if err2 is not None:
+                        cat2, can_fb2 = _prov_mgr.classify_error(err2)
+                        logging.warning("[%s] Phase2 err cat=%s: %s",
+                                        _req_id, cat2, str(err2)[:200])
+                        if can_fb2 and _syn_idx + 1 < len(_providers):
+                            _np2 = _providers[_syn_idx + 1]
+                            yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': f'Synthesis failed on {_sp[\"name\"]} — trying {_np2[\"name\"]}…'}})}\n\n"
+                            continue
+                        yield f"data: {json.dumps({'type': 'text', 'text': _prov_mgr.user_message(cat2)})}\n\n"
+                        _answered = True
+                        break
+
+                    text2 = resp2.choices[0].message.content or ""
+                    if "<function=" in text2:
+                        text2 = re.sub(r'<function[^>]*>[\s\S]*?</function[^>]*>', '', text2).strip()
+                        text2 = re.sub(r'</?function[^>]*>', '', text2).strip()
+                    if not text2:
+                        text2 = _prov_mgr.user_message("unknown_error")
+                    yield f"data: {json.dumps({'type': 'text', 'text': text2})}\n\n"
+                    _answered = True
+                    break
+
+            if not _answered:
+                yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ Could not complete the request. Please try again.'})}\n\n"
 
         except Exception as outer_err:
             # Last-resort catch — always send something to unblock the UI
@@ -1610,6 +1552,53 @@ def chat():
     return Response(stream_with_context(generate()),
                     mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+@app.route("/ai/health")
+@app.route("/health")
+def health_check():
+    """Startup / liveness health check — tests both AI providers with a minimal call."""
+    import concurrent.futures, datetime
+
+    def _probe(p):
+        name  = p["name"]
+        model = p["model"]
+        t0    = datetime.datetime.utcnow()
+        try:
+            p["client"].chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": "Reply with the single word OK."}],
+                max_tokens=5,
+                temperature=0,
+            )
+            ms = int((datetime.datetime.utcnow() - t0).total_seconds() * 1000)
+            return {"provider": name, "model": model, "status": "ok", "latency_ms": ms}
+        except Exception as exc:
+            ms  = int((datetime.datetime.utcnow() - t0).total_seconds() * 1000)
+            cat, _ = _prov_mgr.classify_error(exc)
+            return {"provider": name, "model": model, "status": "error",
+                    "error_category": cat, "detail": str(exc)[:200], "latency_ms": ms}
+
+    providers = _prov_mgr.providers()
+    if not providers:
+        return jsonify({"status": "unhealthy", "reason": "no_providers_configured",
+                        "providers": []}), 503
+
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        futures = {ex.submit(_probe, p): p for p in providers}
+        for fut in concurrent.futures.as_completed(futures):
+            results.append(fut.result())
+
+    ok_count = sum(1 for r in results if r["status"] == "ok")
+    overall  = "healthy" if ok_count > 0 else "unhealthy"
+    http_code = 200 if ok_count > 0 else 503
+
+    return jsonify({
+        "status":    overall,
+        "providers": results,
+        "primary_ok": any(r["status"] == "ok" and r["provider"] == "Gemini" for r in results),
+        "fallback_ok": any(r["status"] == "ok" and r["provider"] == "Groq" for r in results),
+    }), http_code
 
 @app.route("/reports-data")
 @app.route("/ai/reports-data")
