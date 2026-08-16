@@ -99,7 +99,7 @@ class AIProviderManager:
         if "timeout" in msg.lower() or "timed out" in msg.lower():
             return "timeout", True
         if "400" in msg:
-            return "bad_request", False       # code/request bug — no fallback
+            return "bad_request", True        # try next provider — tools schema may differ
         return "unknown_error", True
 
     def user_message(self, category):
@@ -1518,8 +1518,8 @@ def chat():
                     )
                 })
 
-                # Try each provider starting from whichever is still alive
-                for _syn_idx in range(_prov_idx, len(_providers)):
+                # Try all providers for synthesis — start from 0 (fresh attempt)
+                for _syn_idx in range(len(_providers)):
                     _sp    = _providers[_syn_idx]
                     logging.warning("[%s] Phase2 attempt=%d prov=%s model=%s msgs=%d",
                                     _req_id, _syn_idx, _sp["name"], _sp["model"], len(_clean))
