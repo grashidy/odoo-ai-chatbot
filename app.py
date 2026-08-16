@@ -1177,10 +1177,11 @@ def chat():
             for m in recent:
                 messages.append({"role": m["role"], "content": m.get("content") or ""})
 
-            max_iterations   = 5    # needs up to: tool call → result → tool call 2 → result 2 → answer
-            tool_call_counts = {}   # tool_name → how many times called this turn
-            tool_fail_count  = 0   # consecutive schema-validation failures
-            answered         = False
+            max_iterations        = 5    # needs up to: tool call → result → tool call 2 → result 2 → answer
+            tool_call_counts      = {}   # tool_name → how many times called this turn
+            tool_fail_count       = 0   # consecutive schema-validation failures
+            provider_switch_count = 0   # total provider switches — cap at 2 to prevent cycling
+            answered              = False
 
             for iteration in range(max_iterations):
                 response = None
@@ -1268,17 +1269,20 @@ def chat():
                     is_model_404 = ("404" in err_msg and ("no longer available" in err_msg or "not found" in err_msg.lower()))
                     is_tool_fail = "tool_use_failed" in err_msg or "tool call validation" in err_msg.lower()
                     if is_model_404:
-                        # Model deprecated/unavailable — auto-switch to the other provider
+                        # Model deprecated/unavailable — switch provider (max 2 switches to prevent cycling)
                         is_gemini = "generativelanguage" in str(getattr(client, 'base_url', ''))
                         if is_gemini:
                             fallback_c, fallback_m = _make_groq_client()
                         else:
                             fallback_c, fallback_m = _make_gemini_client()
-                        if fallback_c:
+                        if fallback_c and provider_switch_count < 2:
+                            provider_switch_count += 1
                             client, _ai_model = fallback_c, fallback_m
                             yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': f'Model unavailable — switching to {fallback_m}…'}})}\n\n"
                             continue
-                        yield f"data: {json.dumps({'type': 'text', 'text': '❌ AI model unavailable and no fallback configured. Please check your API keys in Settings.'})}\n\n"
+                        # No fallback or already switched twice — show clear error
+                        _cur_model = _ai_model
+                        yield f"data: {json.dumps({'type': 'text', 'text': f'❌ AI model unavailable ({_cur_model}). Both providers failed. Please check: (1) GEMINI_API_KEY is set in Railway Variables, (2) The model name is still valid in Google AI Studio.'})}\n\n"
                         answered = True
                         break
                     if is_rate:
@@ -1291,18 +1295,26 @@ def chat():
                             wait_sec = int(float(_m_sec.group(1))) + 2
                         else:
                             wait_sec = 65
-                        if "per day" in err_msg.lower() or "tpd" in err_msg.lower() or wait_sec > 300:
-                            # Daily quota hit — try switching to the other provider automatically
+                        _is_daily = (
+                            "per day" in err_msg.lower() or
+                            "tpd" in err_msg.lower() or
+                            "daily" in err_msg.lower() or
+                            "exceeded" in err_msg.lower() or
+                            wait_sec > 300
+                        )
+                        if _is_daily:
+                            # Daily quota hit — switch provider once; if both exhausted, stop
                             is_groq = "groq.com" in str(getattr(client, 'base_url', ''))
                             if is_groq:
                                 fallback_c, fallback_m = _make_gemini_client()
                             else:
                                 fallback_c, fallback_m = _make_groq_client()
-                            if fallback_c:
+                            if fallback_c and provider_switch_count < 2:
+                                provider_switch_count += 1
                                 client, _ai_model = fallback_c, fallback_m
                                 yield f"data: {json.dumps({'type': 'tool', 'name': 'switch_provider', 'input': {'model': f'Daily quota reached — switching to {fallback_m}…'}})}\n\n"
                                 continue  # retry with the other provider
-                            yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ Daily API quota exhausted on all providers. Please wait a few hours or add a new API key in Settings.'})}\n\n"
+                            yield f"data: {json.dumps({'type': 'text', 'text': '⚠️ Daily API quota exhausted on all providers. Please wait until midnight (quota resets daily) or add a new API key in Settings.'})}\n\n"
                             answered = True
                             break
                         else:
