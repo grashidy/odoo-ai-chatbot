@@ -735,6 +735,12 @@ hr.employee  →  employee master data
   ▶ Inactive / offboarded: domain=[["active","=",False]]
   ▶ Headcount by dept: odoo_read_group hr.employee groupby=["department_id"] aggregates=[]
   NOTE: When user asks for employees, ALWAYS include active=True in domain unless they ask for inactive
+  ▶ Reporting structure / employees under each manager / org chart:
+    ALWAYS use odoo_search — NEVER use odoo_read_group with groupby=["parent_id"] (self-referential M2O fails).
+    Call: odoo_search hr.employee fields=["name","parent_id","department_id","job_title","job_id"] domain=[["active","=",True]] limit=200
+    Then build the hierarchy yourself in the response: group rows by parent_id value (manager name).
+    Employees where parent_id=False have no manager (top of hierarchy).
+    Format as a markdown table with columns: Manager | Employee | Department | Job Title
 
 ── DEPARTMENTS & ORG STRUCTURE ──
 hr.department  →  departments / org chart
