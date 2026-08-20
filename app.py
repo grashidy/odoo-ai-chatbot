@@ -195,8 +195,9 @@ logging.info("Odoo: %s  db=%s  uid=%d", ODOO_URL, ODOO_DB, ODOO_UID)
 
 _odoo = xmlrpc.client.ServerProxy(ODOO_URL + "/xmlrpc/2/object")
 
-# Multi-company context for construction company (company_id=3)
-ODOO_CTX = {"allowed_company_ids": [1, 2, 3, 4, 5], "company_id": 3}
+# Company context — read from env var so it works across databases
+_company_id = int(os.environ.get("ODOO_COMPANY_ID", "1"))
+ODOO_CTX = {"allowed_company_ids": [_company_id], "company_id": _company_id}
 
 def odoo_call(model, method, args, kwargs=None):
     kw = dict(kwargs) if kwargs else {}
