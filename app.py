@@ -601,6 +601,25 @@ RULES:
 - On ANY field error (field not found / invalid field) → first judge: is the failing field ESSENTIAL to answering the question? If NO (e.g., field was just for extra info like employee_number, a display field, etc.) → drop that field immediately and retry the SAME query without it. NEVER stop or report the error to the user — just silently retry. If YES (the field is the core of the question) → IMMEDIATELY call odoo_get_fields to find the correct field name, then call the search again with the correct name in the SAME response. NEVER say "the records still need to be re-queried" or "needs to be re-queried" or "the employee records still need to be re-queried" — just DO the retry. You MUST emit the retry tool call in the same response.
 - If a tool returns an error, report the error — do NOT invent data to compensate.
 
+⚠ GLOBAL GROUPBY RULE — applies to ALL models without exception:
+  Odoo's read_group NEVER supports dotted field paths in groupby.
+  ONLY direct fields of the queried model are valid in groupby.
+  Dotted paths like product_id.categ_id / partner_id.country_id / employee_id.department_id
+  are ALWAYS rejected by Odoo — they work in domain filters but NEVER in groupby.
+
+  CORRECT 2-STEP PATTERN for "group by a related model's attribute":
+    Step 1: odoo_read_group <model> groupby=["<many2one_field>"] aggregates=[...]
+    Step 2: odoo_search <related_model> domain=[["id","in",[...ids from step 1]]] fields=["id","<target_attribute>"]
+    Then combine in your answer text (group step-1 rows by the step-2 attribute).
+
+  Examples of what NEVER to put in groupby:
+    ✗ product_id.categ_id   → use groupby=["product_id"] + fetch product.product categ_id separately
+    ✗ partner_id.country_id → use groupby=["partner_id"] + fetch res.partner country_id separately
+    ✗ employee_id.department_id → use groupby=["employee_id"] + fetch hr.employee department_id separately
+    ✗ contract_type_id.name → use groupby=["contract_type_id"] (the M2O itself is valid)
+    ✗ picking_type_id.code  → use groupby=["picking_type_id"] (the M2O itself is valid)
+    ✓ department_id, state, stage_id, job_id, source_id — direct fields → always fine in groupby
+
 CHARTS: CHART_BAR:{{"title":"T","labels":["A","B"],"data":[10,20]}}  CHART_PIE:{{"title":"T","labels":["A"],"data":[1]}}
 
 ══ CONSTRUCTION MODELS — use ONLY these for any construction/project question ══
@@ -730,8 +749,12 @@ stock.lot  →  lot/serial numbers for traceability
 purchase.order      → purchase orders
   Fields: name, partner_id, state, amount_total, date_order
   state values: draft=RFQ | sent=RFQ Sent | to approve=To Approve | purchase=Purchase Order | done=Locked | cancel=Cancelled
+  ▶ By vendor: odoo_read_group groupby=["partner_id"] aggregates=["amount_total:sum"]
+  ▶ By state:  odoo_read_group groupby=["state"] aggregates=["amount_total:sum"]
+  ▶ By vendor country: groupby=["partner_id"] → then fetch res.partner country_id separately (NEVER groupby=["partner_id.country_id"])
 
 purchase.order.line → PO lines (order_id,product_id,product_qty,price_unit,price_subtotal)
+  ▶ By product category: groupby=["product_id"] → then fetch product.product categ_id separately (NEVER groupby=["product_id.categ_id"])
 res.partner         → partners/vendors/clients (name,phone,email,is_company)
 
 ══ HR MODELS — use these for ALL HR / people management questions ══
@@ -787,6 +810,8 @@ hr.contract  →  employment contracts
   ▶ Expiring in 30 days: domain=[["state","=","open"],["date_end","!=",False],["date_end","<","{today_date}"]]
   ▶ Probation contracts: domain=[["state","=","open"],["contract_type_id.name","ilike","probation"]]
   ▶ By dept: odoo_read_group groupby=["department_id"] aggregates=["wage:sum"]
+  ▶ By contract type: odoo_read_group groupby=["contract_type_id"] aggregates=["wage:sum"]  ← use contract_type_id (M2O), NOT contract_type_id.name in groupby
+  ▶ By employee dept (via hr.employee): groupby=["employee_id"] then fetch department from hr.employee separately (2-step)
 
 ── ATTENDANCE ──
 hr.attendance  →  daily check-in / check-out records
@@ -795,6 +820,7 @@ hr.attendance  →  daily check-in / check-out records
   ▶ Missing check-out: domain=[["check_out","=",False]]
   ▶ Monthly hours per employee: odoo_read_group groupby=["employee_id"] aggregates=["worked_hours:sum"]
     + add date domain for the month range
+  ▶ By department: groupby=["employee_id"] → then fetch hr.employee department_id separately (NEVER groupby=["employee_id.department_id"])
   NOTE: check_in / check_out stored in UTC — displayed in user timezone in Odoo UI
 
 ── LEAVES / TIME OFF ──
@@ -824,6 +850,7 @@ hr.payslip  →  individual payslips
   ▶ Current month (paid): domain=[["date_from",">=","{today_date[:7]}-01"],["date_from","<","{today_date}"],["state","=","done"]]
   ▶ By employee: odoo_read_group groupby=["employee_id"] aggregates=[]
   ▶ By run: odoo_read_group groupby=["payslip_run_id"] aggregates=[]
+  ▶ By department: groupby=["employee_id"] → then fetch hr.employee department_id separately (NEVER groupby=["employee_id.department_id"])
 
 hr.payslip.run  →  payroll batches / pay runs
   Fields: name, date_start, date_end, state
