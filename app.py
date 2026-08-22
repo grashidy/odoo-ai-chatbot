@@ -688,6 +688,18 @@ stock.quant  →  current stock on hand
   ▶ For "current stock / stock levels": domain=[["location_id.usage","=","internal"],["quantity",">",0]]
   ▶ For "stock by product": odoo_read_group stock.quant domain=[["location_id.usage","=","internal"]] groupby=["product_id"] aggregates=["quantity:sum"]
   ▶ For "stock by location": odoo_read_group stock.quant domain=[["location_id.usage","=","internal"]] groupby=["location_id"] aggregates=["quantity:sum"]
+  ▶ For "stock by category / حسب فئة المنتج": groupby=["product_id.categ_id"] is NOT supported — Odoo rejects dotted paths in groupby.
+    Correct 2-step approach:
+      Step 1: odoo_read_group stock.quant domain=[["location_id.usage","=","internal"],["quantity",">",0]] groupby=["product_id"] aggregates=["quantity:sum"]
+      Step 2: odoo_search product.product domain=[["id","in",[...ids from step1]]] fields=["id","name","categ_id","standard_price"]
+      Then group step-1 quantities by categ_id from step-2 in your response text.
+  ▶ For "stock value / قيمة المخزون": stock.quant has NO cost or price field.
+    Correct approach: multiply quantity × standard_price from product.product.
+      Step 1: odoo_read_group stock.quant groupby=["product_id"] aggregates=["quantity:sum"] domain=[["location_id.usage","=","internal"],["quantity",">",0]]
+      Step 2: odoo_search product.product domain=[["id","in",[...ids]]] fields=["id","name","categ_id","standard_price"]
+      Then compute value = quantity × standard_price, group by categ_id, present as a table.
+  ⚠ NEVER use dotted field paths (e.g. product_id.categ_id) in groupby — Odoo always rejects them.
+     Only direct fields of the queried model are valid in groupby.
 
 stock.picking  →  stock transfers (receipts, deliveries, internal)
   Fields: name, partner_id, state, picking_type_id, scheduled_date, date_done, origin
